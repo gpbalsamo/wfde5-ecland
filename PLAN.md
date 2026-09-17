@@ -77,6 +77,57 @@ local coding agent, separate from the scientific milestones (0-7).
 - [ ] No accidental flattening/reordering — **NOT VERIFIABLE** until the
       above exists.
 
+**Investigation findings, 2026-09-17 (paused here, no MARS spend yet —
+read this before re-investigating from scratch)**:
+
+- `init_clim/init_clim.py`'s own import, `from osm_pyutils import
+  grid_gaussian as gg`, **does not resolve against the current
+  `/perm/pad/ecland` checkout** — `grid_gaussian.py` does not exist
+  anywhere in that tree's `tools/create_forcing/scripts/osm_pyutils/`
+  (checked directly: `ls` + `find`, not just an import error). This was
+  valid against whatever ecland snapshot `liaise-ecland` was built against
+  at the time; the currently-maintained ecland tree has moved past it.
+  `docs/migration_from_liaise.md`'s Category A classification of
+  `init_clim.py` ("port unchanged, adjust only import paths") is **no
+  longer accurate as stated** — the import itself needs more than a path
+  fix, or a different tool entirely.
+- A plausible successor exists — `iniclim_forcing_LL.py`/`interp_ll.py` in
+  the same `osm_pyutils` package — but **not verified as a drop-in
+  replacement** for whatever `get_grib_grid()` provided.
+- Separately, and better news: this machine already has a **full working
+  ecLand build**, `/perm/pad/ecland/build/bin/ecland-master-dp` (+
+  `ecland-master-cmflood-dp` for coupled runs) — a real unblock for
+  Milestone 3 once surfclim/soilinit/namelist exist.
+- ecland's own tree also has an **actively-maintained**, config-driven
+  alternative: `tools/create_forcing/ecland_create_forcing.py`
+  (MARS-or-CDS, ERA5-based climatology/init, `1D` site or `2D`
+  bounding-box region). It has no explicit "global" mode, but its internal
+  grid-sizing formula (`nlat=int((180-dx)/dx+1)`, `nlon=int((360-dx)/dx+1)`)
+  is resolution-only, so a full-globe bounding box is plausible —
+  **untested at that extent**.
+- Confirmed `climate.v021` (the static climatology archive both tools
+  ultimately read from, e.g. `/home/rdx/data/climate/climate.v021/399_4/`)
+  is genuinely **global already** (`grib_ls`: -89.83..89.83 coverage) — the
+  LIAISE crop in both `liaise-ecland`'s `init_clim.sh` and ecland's own 2D
+  tool happens only at the interpolation step, not the source data. Even
+  the LIAISE-flagged irrigation input turns out to be a global product at
+  the same native resolution.
+- Confirmed the exact MARS grid/area parameterization needed to land on
+  WFDE5's grid convention if generalising `init_clim.sh` directly:
+  `area=89.75/-179.75/-89.75/179.75` (cell-center corners, matching WFDE5's
+  `±89.75`/`±179.75`), **not** `90/-180/-90/180` (grid-line corners) — the
+  wrong choice here silently produces a half-cell-offset grid, exactly the
+  kind of mismatch `docs/grid_strategy.md` warns about.
+- **Decision paused, not made**: patch `init_clim.py`'s broken import
+  (faithful to the original migration plan, but reverse-engineering a
+  compatibility shim) vs. switch to `ecland_create_forcing.py`'s 2D
+  pipeline with a global box (built on currently-maintained code, but
+  untested at that scale) — pick this up in a future session before
+  writing any new driver code.
+- Independent of that choice: `namelist/templates/` is still empty and
+  `run/run_ecland.sh` does not exist — "run ecLand" needs both regardless
+  of how surfclim/soilinit get built.
+
 ## Milestone 3 — pilot ecLand run
 
 - [ ] One day, global — **NOT STARTED**.
