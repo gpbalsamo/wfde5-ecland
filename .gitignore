@@ -43,6 +43,10 @@ experiments/*/output/
 experiments/*/restart/
 experiments/*/work/
 
+# Benchmark run artifacts (scripts/benchmark.py) -- generated per run,
+# never committed. See docs/benchmark_contract.md.
+reports/
+
 # Logs and scheduler output
 *.log
 *.out
