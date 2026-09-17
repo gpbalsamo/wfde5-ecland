@@ -165,11 +165,135 @@ tests/         synthetic-fixture unit tests (no real WFDE5 archive needed)
 Each directory has its own `README.md` stating its real status and what it
 generalises from `liaise-ecland`, if anything.
 
+## Requirements
+
+- An ecLand executable, built separately — see
+  [ECMWF ecLand](https://github.com/ecmwf-ifs/ecland) or the build walkthrough
+  in [`ecLand4U`](https://github.com/gpbalsamo/ecLand4U). CaMa-Flood is
+  compiled *into* `ecland-master-dp` for one-way coupling, so no second
+  executable is needed once Milestones 4-5 land.
+- ECMWF HPC modules for an actual run (not needed for anything below yet):
+  `prgenv/intel`, `intel/2021.4`, `hpcx-openmpi/2.9`, `netcdf4/4.9.1`, `python3`.
+- Python packages: `numpy`, `xarray`, `netCDF4`, `cdsapi`, `pyyaml` (see
+  `pyproject.toml`); `pytest` for the test suite.
+- A CDS API key (`~/.cdsapirc`) once forcing acquisition exists (Milestone 1)
+  — for the *global* `derived-near-surface-meteorological-variables` request,
+  much larger than any LIAISE-clipped pull.
+- Shared ECMWF CaMa-Flood static data (`CMFDIR`) for
+  `cama_flood/build_global_cmf_fixdir.sh`, once routing is exercised
+  (Milestone 5).
+- **No Git LFS needed yet.** Unlike `liaise-ecland`, this repo commits no
+  validated ancillary/forcing/gauge data — see "Data policy" in `CLAUDE.md`.
+  Real global surfclim/soilinit/forcing/CaMa-Flood inputs live outside the
+  repo, referenced through `config/paths.yaml` (gitignored).
+
 ## Quick start
 
-There is no working pilot yet — this section will be filled in once
-Milestone 1 (WFDE5 forcing) has actually been run and validated once. See
-`PLAN.md` for the exact next command once it exists.
+`liaise-ecland`'s own Quick start takes five steps from a clone to a checked
+37-year run. This section mirrors that same stepwise shape for the eventual
+**1988-2024 global** run — but, honestly, only step 1 is real today. The rest
+are the exact commands this repo is being built toward, each labelled with
+what actually exists right now; see `PLAN.md` for the itemised truth and
+`CLAUDE.md`'s core rule before reading a step's presence here as "it runs."
+
+### 1. Clone and verify
+
+```bash
+git clone git@github.com:gpbalsamo/wfde5-ecland.git
+cd wfde5-ecland
+python3 scripts/benchmark.py --profile fast
+```
+
+*Expect:* `RESULT: PASS`, 3/3 checks (Python syntax, Bash syntax, synthetic
+tests). This is the one command in this whole Quick start that is fully
+working today — see `docs/agent_quickstart.md`. No `git lfs pull` step: there
+is nothing checked into LFS here (see "Requirements" above).
+
+### 2. Configure paths and CDS access
+
+```bash
+cp config/paths.example.yaml config/paths.yaml   # edit for your machine
+```
+
+`config/wfde5.yaml` already covers `1979-2024`; a `1988-2024` experiment
+(matching the period `liaise-ecland` validated regionally) is a sub-range of
+that, so no config edit is needed for the date range itself — only the
+machine-specific paths, and your own `~/.cdsapirc` (never committed; see
+`.gitignore`). **Status: real file, but nothing downstream consumes it yet.**
+
+### 3. Get the forcing — Milestone 1, **not yet available**
+
+```bash
+python3 forcing/download_wfde5.py --start-year 1988 --end-year 2024 --output-dir ...   # planned
+python3 forcing/preprocess_wfde5.py --input-dir ... --output-dir ... \
+    --start-year 1988 --end-year 2024                                                  # planned
+python3 forcing/validate_wfde5.py --input-dir ...                                      # planned
+```
+
+Unlike `liaise-ecland` (IPSL mirror for 1988-2014 + CDS for 2015-2024), this
+repo's global request has only one source — the CDS `cru`/`cru_and_gpcc`
+split (see `docs/forcing_variables.md`) — since the IPSL mirror is a
+LIAISE-domain-specific product. None of these three scripts exist yet; see
+`forcing/README.md`.
+
+### 4. Install the ancillary fields — Milestone 2, **not yet available**
+
+```bash
+init_clim/init_clim.sh                    # ported, never yet run against real global input
+python3 init_clim/validate_init_grid.py   # planned, does not exist yet
+```
+
+`init_clim/init_clim.py` itself is already ported unchanged from
+`liaise-ecland` (see `docs/migration_from_liaise.md`), already
+grid-shape-agnostic, but has never been executed in this repository.
+
+### 5. Choose a namelist — Milestone 2/3, **not yet available**
+
+`namelist/templates/` holds only a `.gitkeep` until a pilot grid is chosen —
+see `namelist/README.md` for the env-var-driven templating pattern this will
+follow, generalised from `liaise-ecland/namelist/create_liaise_namelist.sh`.
+
+### 6. Run ecLand — Milestone 3, **not yet available**
+
+```bash
+run/run_ecland.sh --start-date 1988-01-01 --end-date 2024-12-31 \
+  --forcing-dir ... --surfclim ... --soilinit ... --ecland-exe ... --namelist ...   # planned
+```
+
+The full 1988-2024 run is not the first thing this repo attempts even once
+`run_ecland.sh` exists — **the staged pilot (one day → one month → one full
+year, each validated) must pass first**, see "Pilot strategy" above and
+`PLAN.md` Milestone 3. This is a hard rule (`CLAUDE.md`), not a suggestion.
+
+### 7. Check the output — Milestone 3, **not yet available**
+
+```bash
+python3 run/check_water_budget.py ...     # planned: global, area-weighted
+python3 run/check_energy_budget.py ...    # planned: global, area-weighted
+```
+
+The *equation* (`Rainf+Snowf+Evap+Qs+Qsb -
+DelIntercept-DelSoilMoist-DelSWE-DelAquifer ≈ 0`) is verified, carried from
+`liaise-ecland`'s per-site version; the global, area-weighted aggregation is
+new code that does not exist yet.
+
+## Running coupled to CaMa-Flood
+
+Milestone 4/5, **not yet available**:
+
+```bash
+python3 cama_flood/remap_runoff.py ...          # planned
+python3 cama_flood/validate_remapping.py ...    # planned -- conservation gate, see docs/cama_interface.md
+cama_flood/run_cama.sh ...                      # planned
+```
+
+`cama_flood/build_global_cmf_fixdir.sh` (+ its three vendored companion
+tools) is already ported and already builds a genuinely global fix bundle at
+any of `glb_15min`/`glb_06min`/`glb_03min`/`glb_01min` — but has not yet been
+run in this repository. The runoff sign convention
+(`total_runoff = -(Qs+Qsb)`, not `Qs-Qsb`) must be implemented from the
+start, not discovered the way `liaise-ecland` did — see
+`docs/cama_interface.md`.
 
 ## Current status
 
