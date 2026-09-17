@@ -56,6 +56,48 @@ inherited environment variable that silently defeated multi-threading, and
 several others). The full file-by-file reuse decision is in
 [`docs/migration_from_liaise.md`](docs/migration_from_liaise.md).
 
+## Role in the ecLand benchmark cascade
+
+`wfde5-ecland` is the **global** stage of a wider, deliberately staged ecLand
+validation cascade spanning several sibling repositories. Each level is
+cheaper to run and to debug than the one below it, so a failure is meant to
+be caught before an expensive global/decadal run is ever attempted:
+
+```
+LEVEL 0  SOFTWARE     official ecLand build + unit/ctest checks
+              |
+LEVEL 1  SITE          plumber2-ecland — point-scale process evaluation
+              |         (energy, water, carbon, snow, soil moisture, fluxes)
+LEVEL 2  REGION        liaise-ecland — regional forcing/grid consistency,
+              |         surfclim/soilinit, spatial fluxes, regional CaMa-Flood
+LEVEL 3  GLOBAL        wfde5-ecland (this repo) — global forcing, land water
+              |         balance, snow/soil-moisture/runoff climatology
+LEVEL 4  ROUTING       CaMa-Flood — global discharge, storage, flood diagnostics
+              |
+LEVEL 5  BENCHMARKING  GRDC / ifs-riverbench / real flood observations
+```
+
+- [`ecLand4U`](https://github.com/gpbalsamo/ecLand4U) — the gateway/build/
+  learning layer (install, build, test, first-run instructions for the
+  official [`ecmwf-ifs/ecland`](https://github.com/ecmwf-ifs/ecland)).
+- [`plumber2-ecland`](https://github.com/gpbalsamo/plumber2-ecland) — Level 1,
+  site benchmark.
+- [`liaise-ecland`](https://github.com/gpbalsamo/liaise-ecland) — Level 2,
+  regional benchmark (see "Relation to `liaise-ecland`" above).
+- `wfde5-ecland` (this repo) — Level 3, global benchmark, plus Level 4
+  (CaMa-Flood routing) wiring.
+
+This repository does not duplicate the sibling repos' scientific code. It
+exposes a small, deterministic **agent/orchestration interface** —
+[`AGENTS.md`](AGENTS.md), [`docs/agent_quickstart.md`](docs/agent_quickstart.md),
+[`docs/benchmark_contract.md`](docs/benchmark_contract.md), and
+`scripts/benchmark.py` — so that a future cross-repo orchestrator (not built
+here), or a low-footprint local coding agent (e.g. a 7B model run locally via
+Ollama), can run and interpret each stage's checks without needing to read or
+understand the full scientific codebase. See those documents for the current,
+honestly-labelled state of that interface — most of it is scaffolding, not a
+working pipeline yet (`PLAN.md`'s "Agent/cascade interface" milestone).
+
 ## WFDE5 forcing choice
 
 The first (and, for now, only planned) forcing is **WFDE5 with CRU+GPCC

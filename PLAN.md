@@ -6,6 +6,15 @@ means code/config exists but has not been run against real data; **NOT
 STARTED** means neither exists. Nothing is marked DONE because a script was
 written — see `CLAUDE.md`.
 
+## Role in benchmark cascade
+
+This repo is Level 3 (global) of a site→region→global→routing→benchmark
+cascade — see README.md's "Role in the ecLand benchmark cascade" for the full
+diagram and sibling-repo list (`ecLand4U`, `plumber2-ecland`, `liaise-ecland`).
+Milestone 8 below tracks the agent/orchestration interface that makes this
+repo's stages callable by a future cross-repo orchestrator or a low-footprint
+local coding agent, separate from the scientific milestones (0-7).
+
 ## Milestone 0 — repository migration
 
 - [x] Identify reusable `liaise-ecland` code — `docs/migration_from_liaise.md`,
@@ -97,6 +106,34 @@ written — see `CLAUDE.md`.
 - [ ] WFDE5_CRU_GPCC baseline — **NOT STARTED** (depends on Milestones 1-6).
 - [ ] ERA5 comparison — **NOT STARTED**.
 - [ ] MSWEP precipitation sensitivity — **NOT STARTED**.
+
+## Milestone 8 — agent/cascade interface
+
+Not a scientific milestone: makes this repo's checks callable by a future
+cross-repo orchestrator (e.g. a not-yet-built `ecland-cascade`) or a
+low-footprint local coding agent (e.g. `qwen2.5-coder:7b` via Ollama), without
+requiring it to read the full scientific codebase or parse prose logs.
+
+- [x] `AGENTS.md` — short operating contract (safe/approval-needed/forbidden
+      commands, fast entrypoint, escalation rule).
+- [x] `docs/agent_quickstart.md` — under ~1500 words, what/status/first
+      command/where results land.
+- [x] `docs/benchmark_contract.md` — Gate 0-5 definitions, JSON result
+      schema, failure-code vocabulary.
+- [x] Benchmark profiles (`benchmark.yaml`: fast/smoke/intermediate/
+      reference/production).
+- [x] JSON result schema (`benchmark_result.json`, one per experiment run).
+- [x] `scripts/benchmark.py` — deterministic CLI, `--profile {...}`, writes
+      the JSON result, compact per-check progress lines, exit code 0/1/2.
+- [x] Synthetic tests for the interface itself (`tests/test_benchmark.py`) —
+      no WFDE5 archive or ecLand executable required.
+
+**Honest current scope**: only Gate 0 (repository: Python/Bash syntax) is a
+real, executable check right now. `--profile fast` also runs `pytest tests/`
+(all synthetic). `--profile smoke/intermediate/reference/production` exit
+with status `NOT_IMPLEMENTED` (exit code 2) — Gates 1-5 depend on Milestones
+1-5 above, which are themselves NOT STARTED. Do not read "the CLI exists" as
+"the pipeline works" — see `CLAUDE.md`'s single most important rule.
 
 ## Open blockers
 
