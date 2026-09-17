@@ -1,0 +1,116 @@
+# PLAN.md
+
+Living state tracker. Status labels are load-bearing, not decorative: **DONE**
+means executed successfully and its own validation passed; **NOT VERIFIED**
+means code/config exists but has not been run against real data; **NOT
+STARTED** means neither exists. Nothing is marked DONE because a script was
+written — see `CLAUDE.md`.
+
+## Milestone 0 — repository migration
+
+- [x] Identify reusable `liaise-ecland` code — `docs/migration_from_liaise.md`,
+      every named file actually read and classified A/B/C/D.
+- [x] Create global directory structure.
+- [ ] Port Category A files unchanged (`init_clim/init_clim.py`,
+      `cama_flood/build_global_cmf_fixdir.sh`) — **NOT STARTED**.
+- [ ] Generalise Category B files (remove LIAISE grid/domain constants, move
+      to `config/`) — **NOT STARTED**.
+- [x] Remove regional assumptions from the *design* (grid strategy, interface
+      docs) — `docs/grid_strategy.md`, `docs/cama_interface.md`.
+
+## Milestone 1 — WFDE5 forcing
+
+- [ ] Define required ecLand variables — **DONE for the CDS-side table**
+      (`docs/forcing_variables.md`, carried from a verified source), **NOT
+      VERIFIED for the ecLand-side conventions** (accumulated-vs-instantaneous,
+      timestamp interpretation, longitude/latitude convention) — these are
+      stated as open questions in that document, not assumed answered.
+- [ ] Obtain one year of global WFDE5 — **NOT STARTED**.
+- [ ] Validate coordinates/timestamps/units against real downloaded data —
+      **NOT STARTED** (`forcing/validate_wfde5.py` does not exist yet).
+- [ ] Create ecLand-ready files — **NOT STARTED**.
+- [ ] Verify global coverage — **NOT STARTED**.
+
+## Milestone 2 — ecLand climatology + initialization
+
+- [ ] Construct `surfclim` on the exact model grid — **NOT STARTED**.
+- [ ] Construct `soilinit` on the exact model grid — **NOT STARTED**.
+- [ ] Validate shape/coordinates/mask — **NOT STARTED**
+      (`init_clim/validate_init_grid.py` does not exist yet; see
+      `docs/grid_strategy.md` for exactly what it must check).
+- [ ] No accidental flattening/reordering — **NOT VERIFIABLE** until the
+      above exists.
+
+## Milestone 3 — pilot ecLand run
+
+- [ ] One day, global — **NOT STARTED**.
+- [ ] One month, global — **NOT STARTED**.
+- [ ] One complete year, global — **NOT STARTED**.
+- [ ] Verify energy budget — **NOT STARTED** (equation carried from
+      `liaise-ecland`'s verified convention, see `docs/forcing_variables.md`;
+      the *global, area-weighted* aggregation code does not exist yet).
+- [ ] Verify water budget — **NOT STARTED**, same caveat.
+- [ ] Quantify global runoff totals — **NOT STARTED**.
+
+## Milestone 4 — runoff-to-CaMa interface
+
+- [x] Define Qs + Qsb convention — **DONE as a design decision**,
+      `total_runoff = -(Qs + Qsb)`, verified in the reference project against
+      real Fortran discharge (0.2-3% agreement) — see
+      `docs/forcing_variables.md`. **NOT YET IMPLEMENTED OR RE-VERIFIED** in
+      this repo's own code.
+- [ ] Temporal aggregation — **NOT STARTED** (`aggregate_runoff_to_daily.py`
+      not yet ported).
+- [ ] Area conversion — **NOT STARTED**.
+- [ ] Derive conservative mapping weights — **NOT STARTED**
+      (`derive_cmf_weights.sh`'s remap core not yet ported/generalised).
+- [ ] Prove global water conservation before routing — **NOT STARTED**
+      (`cama_flood/validate_remapping.py` does not exist yet).
+
+## Milestone 5 — CaMa-Flood
+
+- [ ] Pilot basin first if useful — **NOT STARTED**.
+- [ ] Global routing — **NOT STARTED**.
+- [ ] Output Q, river storage, flood storage, flood fraction — **NOT STARTED**.
+
+## Milestone 6 — validation
+
+- [ ] GRDC / existing river benchmark framework — **NOT STARTED** (the
+      *formulas* — KGE/NSE/PBIAS — are verified in `liaise-ecland` against the
+      official CaMa-Flood package's own reference script and are safe to
+      reuse verbatim once there is discharge to score).
+- [ ] Selected large basins — **NOT STARTED**.
+- [ ] Global water balance — **NOT STARTED**.
+- [ ] Seasonal hydrographs — **NOT STARTED**.
+- [ ] KGE / NSE / correlation / bias / RMSE — **NOT STARTED**. Note from the
+      reference project, worth carrying forward: a mean-flow prediction scores
+      NSE = 0 but KGE = 1 − √2 ≈ −0.41 (Knoben, Freer & Woods 2019) — do not
+      use KGE > 0 as if it were the same "beats climatology" bar as NSE > 0.
+
+## Milestone 7 — forcing sensitivity
+
+- [ ] WFDE5_CRU_GPCC baseline — **NOT STARTED** (depends on Milestones 1-6).
+- [ ] ERA5 comparison — **NOT STARTED**.
+- [ ] MSWEP precipitation sensitivity — **NOT STARTED**.
+
+## Open blockers
+
+- No global WFDE5 data has been downloaded yet — Milestone 1's CDS request
+  structure is designed (`config/wfde5.yaml`) but untested against a real
+  global (not LIAISE-cropped) pull.
+- The ecLand executable, its exact global-run namelist requirements, and the
+  target CaMa-Flood map-package resolution have not been chosen.
+- `liaise-ecland`'s own reservoir/dam-module investigation (CaMa-Flood v4.20
+  `LDAMOUT`) found a real, only partially understood numerical instability at
+  fine time/space scales for run-of-river-type reservoirs — irrelevant to a
+  first global naturalised (no-dam) pilot, but worth knowing before this repo
+  ever turns dams on.
+
+## Immediate next step
+
+Port `init_clim/init_clim.py` unchanged (Category A, see
+`docs/migration_from_liaise.md`) and `forcing/prepare_liaise_forcing_ecland.py`
+near-unchanged, as the two lowest-risk, highest-confidence Category
+A/near-A files — this unblocks writing `forcing/validate_wfde5.py` against a
+real (if small, e.g. one month) downloaded WFDE5 file, which is the actual
+prerequisite for Milestone 1's remaining items.
