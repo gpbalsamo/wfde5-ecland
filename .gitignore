@@ -1,0 +1,71 @@
+# Python
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Large / generated scientific data -- never committed.
+# Small, curated, hand-checked reference files are the explicit exceptions
+# below (e.g. namelist templates, tiny test fixtures) -- add further
+# exceptions there, not by removing rules here.
+*.nc
+*.nc4
+*.grib
+*.grb
+*.grb1
+*.grb2
+*.zarr/
+*.bin
+*.npz
+
+# ... except tiny synthetic test fixtures, explicitly curated and reviewed.
+!tests/fixtures/**/*.nc
+
+forcing/data/
+init_clim/work/
+init_clim/output/
+run/output/
+run/output_*/
+run/restart/
+run/work/
+run/bin/
+run/bin_*/
+run/lib64/
+run/lib64_*/
+cama_flood/work/
+cama_flood/work_*/
+experiments/*/output/
+experiments/*/restart/
+experiments/*/work/
+
+# Logs and scheduler output
+*.log
+*.out
+*.err
+slurm-*.out
+
+# Credentials -- never, under any circumstance.
+.cdsapirc
+*cdsapirc*
+.netrc
+*api_key*
+*apikey*
+*credentials*
+*.pem
+*.key
+!config/paths.example.yaml
+
+# Machine-specific config (real paths.yaml belongs on the machine, not in git;
+# only paths.example.yaml with placeholder values is committed).
+config/paths.yaml
+
+# Temporary files
+*.tmp
+*.bak
+*~
+.DS_Store
