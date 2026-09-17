@@ -38,14 +38,23 @@ a fixed WFDE5 convention, not distributed as a CDS variable itself.
 
 ## Open questions this repo must verify itself
 
-The handoff spec lists these explicitly and they have **not yet been
-answered against this repo's own downloaded data** — do not assume the
-liaise-ecland answers transfer without checking:
+The handoff spec lists these explicitly. Two are now answered, against this
+repo's own real downloaded data (see below); the rest are still open — do
+not assume the liaise-ecland answers transfer without checking:
 
+- **Longitude convention: ANSWERED, `-180..180`, not `0..360`.** Verified
+  2026-09-17 against `forcing/WFDE5_CRU_GPCC_1988_01-01.nc` (one real month,
+  downloaded via `forcing/download_wfde5.py --start-year 1988 --end-year
+  1988 --months 01`): `lon` runs `-179.75 .. 179.75`.
+- **Latitude ordering: ANSWERED, ascending.** Same file: `lat` runs
+  `-89.75 .. 89.75` (south to north). Grid confirmed global 360 lat x 720
+  lon at 0.5 deg, matching `download_wfde5.py`'s memory-estimate log.
 - Precipitation: WFDE5's `Rainf`/`Snowf` are fluxes (kg m⁻² s⁻¹), i.e. rates,
   not accumulated depths — consistent with the units column above, but
   `validate_wfde5.py` must confirm this against the actual downloaded file's
-  own `units` attribute, not this table.
+  own `units` attribute, not this table. (Real 1988-01 values are physically
+  sane -- `Rainf`/`Snowf` non-negative, `Tair` 210-322 K -- but the units
+  *attribute* itself hasn't been asserted programmatically yet.)
 - Radiation: `SWdown`/`LWdown` units above (W m⁻²) indicate instantaneous
   flux, not accumulated energy — again, verify against the file, not this
   document.
@@ -55,11 +64,11 @@ liaise-ecland answers transfer without checking:
   same calendar, and whether timestamps mark interval start, centre, or end,
   must be checked directly — `liaise-ecland`'s own rebasing script
   (`prepare_liaise_forcing_ecland.py`) does not by itself answer this.
-- Longitude convention (−180..180 vs 0..360) and latitude ordering (ascending
-  vs descending) in the *raw* CDS delivery: not documented in the reference
-  repo's own scripts in a way that's safe to copy blindly — `inspect_grid.py`
-  must check this on real data before any remapping step trusts it.
-- Missing-value/fill-value convention: not verified here.
+- Missing-value/fill-value convention: `ASurf` (static) uses `1e20` fill over
+  ocean/masked points in the real 1988-01 file; the dynamic variables are
+  also masked (land-only coverage, as expected for a land-surface forcing
+  product) but the exact fill value used for *them* hasn't been asserted
+  programmatically yet -- `validate_wfde5.py`'s job, not this note.
 
 ## ecLand runoff output convention (verified, from real Fortran source)
 

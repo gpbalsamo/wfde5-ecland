@@ -46,15 +46,22 @@ local coding agent, separate from the scientific milestones (0-7).
       pass). **NOT YET RUN against a real CDS request** — no WFDE5 data has
       been downloaded in this repository. Deliberately does not assert any
       global grid convention itself; see the next line.
-- [ ] Obtain one month of global WFDE5 as a first real test, then one full
-      year — **NOT STARTED**. Recommended invocation:
+- [x] Obtain one month of global WFDE5 as a first real test — **DONE**
+      2026-09-17: `forcing/WFDE5_CRU_GPCC/WFDE5_CRU_GPCC_1988_01-01.nc`
+      (1.2 GB, 744 hourly steps, 360x720 global 0.5 deg), downloaded with
       `python3 forcing/download_wfde5.py --start-year 1988 --end-year 1988
-      --months 01` (needs `~/.cdsapirc` and explicit approval before
-      spending CDS quota — see `AGENTS.md`).
+      --months 01`. Values are physically sane (Tair 210-322 K, Rainf/Snowf
+      non-negative). One full year, then 1988-2024, is still **NOT
+      STARTED** — do this incrementally, not in one multi-year batch (see
+      the script's own memory-estimate warning).
 - [ ] Validate coordinates/timestamps/units against real downloaded data —
-      **NOT STARTED** (`forcing/validate_wfde5.py` does not exist yet; this
-      is where longitude convention, latitude ordering, and timestamp
-      semantics actually get checked, not in `download_wfde5.py`).
+      **PARTIALLY ANSWERED, ad hoc, not yet a real check**: longitude
+      convention (`-180..180`) and latitude ordering (ascending) are now
+      confirmed against the real file above and recorded in
+      `docs/forcing_variables.md`. `forcing/validate_wfde5.py` itself still
+      **does not exist** — units/timestamp-semantics/fill-value checks are
+      not yet automated, and nothing here should be trusted as a real gate
+      until that script exists and is run.
 - [ ] Create ecLand-ready files — **NOT STARTED** (`forcing/preprocess_wfde5.py`,
       near-unchanged port of `prepare_liaise_forcing_ecland.py`, not yet
       written).
