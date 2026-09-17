@@ -1,3 +1,5 @@
+![WFDE5-ecLand](docs/wfde5-ecland-banner.png)
+
 # wfde5-ecland
 
 Global ecLand experiments driven by WFDE5, with runoff prepared for
