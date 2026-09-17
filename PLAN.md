@@ -39,10 +39,25 @@ local coding agent, separate from the scientific milestones (0-7).
       VERIFIED for the ecLand-side conventions** (accumulated-vs-instantaneous,
       timestamp interpretation, longitude/latitude convention) — these are
       stated as open questions in that document, not assumed answered.
-- [ ] Obtain one year of global WFDE5 — **NOT STARTED**.
+- [x] `forcing/download_wfde5.py` — **PORTED/GENERALISED** from
+      `liaise-ecland/forcing/get_liaise_forcing_05_cds.py` (LIAISE bbox crop
+      removed, `--months`/`--dry-run` added), syntax-checked and covered by
+      `tests/test_download_wfde5.py` (synthetic fixtures, 4 tests, all
+      pass). **NOT YET RUN against a real CDS request** — no WFDE5 data has
+      been downloaded in this repository. Deliberately does not assert any
+      global grid convention itself; see the next line.
+- [ ] Obtain one month of global WFDE5 as a first real test, then one full
+      year — **NOT STARTED**. Recommended invocation:
+      `python3 forcing/download_wfde5.py --start-year 1988 --end-year 1988
+      --months 01` (needs `~/.cdsapirc` and explicit approval before
+      spending CDS quota — see `AGENTS.md`).
 - [ ] Validate coordinates/timestamps/units against real downloaded data —
-      **NOT STARTED** (`forcing/validate_wfde5.py` does not exist yet).
-- [ ] Create ecLand-ready files — **NOT STARTED**.
+      **NOT STARTED** (`forcing/validate_wfde5.py` does not exist yet; this
+      is where longitude convention, latitude ordering, and timestamp
+      semantics actually get checked, not in `download_wfde5.py`).
+- [ ] Create ecLand-ready files — **NOT STARTED** (`forcing/preprocess_wfde5.py`,
+      near-unchanged port of `prepare_liaise_forcing_ecland.py`, not yet
+      written).
 - [ ] Verify global coverage — **NOT STARTED**.
 
 ## Milestone 2 — ecLand climatology + initialization
@@ -150,11 +165,14 @@ with status `NOT_IMPLEMENTED` (exit code 2) — Gates 1-5 depend on Milestones
 
 ## Immediate next step
 
-`init_clim/init_clim.py` and `cama_flood/build_global_cmf_fixdir.sh` (+
-vendored companions) are now ported (see Milestone 0) but **not executed**.
-Next: port `forcing/prepare_liaise_forcing_ecland.py` near-unchanged (the
-remaining near-A file), then write `forcing/validate_wfde5.py` against a
-real (if small, e.g. one month) downloaded WFDE5 file — that download is the
-actual prerequisite for exercising anything ported so far, since neither
-`init_clim.py` nor the fixdir builder has been run against real data in this
-repository yet.
+`forcing/download_wfde5.py` is now ported/generalised (see Milestone 1) but,
+like `init_clim/init_clim.py` and `cama_flood/build_global_cmf_fixdir.sh`
+(Milestone 0), **not executed against anything real**. Next: get explicit
+approval to spend CDS quota, then actually run
+`python3 forcing/download_wfde5.py --start-year 1988 --end-year 1988
+--months 01` — one real month, not a full year — to get the first real
+downloaded WFDE5 file this repository has ever had. That file is the
+prerequisite for writing `forcing/validate_wfde5.py` (which answers the open
+grid/timestamp questions in `docs/forcing_variables.md` against real data)
+and for exercising `init_clim.py`/the fixdir builder meaningfully, since none
+of the ported code has been run against real data in this repository yet.

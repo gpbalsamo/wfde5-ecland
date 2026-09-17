@@ -37,6 +37,7 @@ to confirm the repository is still internally consistent.
 | Path | What it does | Status |
 |---|---|---|
 | `scripts/benchmark.py` | Deterministic benchmark CLI (this file's subject) | Gate 0 only implemented |
+| `forcing/download_wfde5.py` | Global WFDE5 CDS retrieval + assembly | Ported/generalised, tested on synthetic fixtures, not yet run against real CDS |
 | `init_clim/init_clim.py` | Builds `surfclim`/`soilinit` on the model grid | Ported, not yet run here |
 | `cama_flood/build_global_cmf_fixdir.sh` | Builds the global CaMa-Flood fix bundle | Ported, not yet run here |
 | `cama_flood/aggregate_runoff_to_daily.py` | Hourly->daily runoff aggregation | Reference copy, LIAISE-specific, not generalised |
