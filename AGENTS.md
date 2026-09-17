@@ -43,6 +43,7 @@ threshold is the deterministic pass/fail authority, not your judgement.
 - `python3 scripts/benchmark.py --profile fast`
 - `pytest tests/`
 - `python3 forcing/validate_wfde5.py --help` (or any script's `--help`)
+- `scripts/publish_site.sh ... --dry-run` (prints the command, uploads nothing)
 
 ## Requires human approval first
 
@@ -50,6 +51,9 @@ threshold is the deterministic pass/fail authority, not your judgement.
   `production` (multi-day to multi-decade runs)
 - Any `sbatch`/SLURM submission or other HPC job launch
 - Any download of real WFDE5/CaMa-Flood data (CDS quota, large transfers)
+- Any `scripts/publish_site.sh` invocation without `--dry-run` — it
+  publishes to the public https://sites.ecmwf.int/pad/wfde5/ site, visible
+  to others, same approval bar as a real data download
 - Editing `ecland` source code outside the current, explicitly-scoped task
 
 ## Forbidden

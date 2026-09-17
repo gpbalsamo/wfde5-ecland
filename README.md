@@ -147,6 +147,25 @@ useful for fast end-to-end debugging, but does not replace the global
 structural validation above. See `PLAN.md` Milestone 3 and Phase 10 of the
 original migration specification for the reasoning.
 
+## Dashboards and forcing mirror: sites.ecmwf.int
+
+[`sites.ecmwf.int/pad/wfde5/`](https://sites.ecmwf.int/pad/wfde5/) is this
+project's ECMWF-internal site (`module load sites`, `sitesctl`), mirroring
+the role `sites.ecmwf.int/pad/liaise/...` plays for `liaise-ecland`. Two
+uses, both **not yet exercised**:
+
+- **Dashboards/reports** — once `validation/` produces any (Milestone 6), or
+  simply to publish a `benchmark.py` JSON report, `scripts/publish_site.sh`
+  wraps `sitesctl site content upload` (auth token via `$ECMWF_WFDE5` by
+  default, never printed; `--dry-run` prints the exact command without
+  uploading). See `AGENTS.md` — an actual (non-dry-run) publish is visible
+  to others and needs the same explicit go-ahead as a real data download.
+- **Forcing mirror** — the plan is to also host pre-assembled global WFDE5
+  files there to ease download, the way the IPSL mirror did for
+  `liaise-ecland`'s 1988-2014 range. Nothing is hosted there yet, and
+  `forcing/download_wfde5.py` does not know about this second source —
+  that wiring is future work once files actually land on the site.
+
 ## Directory structure
 
 ```
