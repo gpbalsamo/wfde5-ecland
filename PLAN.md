@@ -11,10 +11,15 @@ written — see `CLAUDE.md`.
 - [x] Identify reusable `liaise-ecland` code — `docs/migration_from_liaise.md`,
       every named file actually read and classified A/B/C/D.
 - [x] Create global directory structure.
-- [ ] Port Category A files unchanged (`init_clim/init_clim.py`,
-      `cama_flood/build_global_cmf_fixdir.sh`) — **NOT STARTED**.
+- [x] Port Category A files unchanged (`init_clim/init_clim.py`,
+      `cama_flood/build_global_cmf_fixdir.sh` + its 3 vendored companion
+      tools, `cama_flood/vendor/`) — **files copied, syntax-checked
+      (`py_compile`/`bash -n`), NOT YET EXECUTED against real data in this
+      repo**. `cama_flood/aggregate_runoff_to_daily.py` (Category B) also
+      carried over as a reference implementation, explicitly flagged
+      NOT YET GENERALIZED in its own header.
 - [ ] Generalise Category B files (remove LIAISE grid/domain constants, move
-      to `config/`) — **NOT STARTED**.
+      to `config/`) — **NOT STARTED** except the reference copy above.
 - [x] Remove regional assumptions from the *design* (grid strategy, interface
       docs) — `docs/grid_strategy.md`, `docs/cama_interface.md`.
 
@@ -108,9 +113,11 @@ written — see `CLAUDE.md`.
 
 ## Immediate next step
 
-Port `init_clim/init_clim.py` unchanged (Category A, see
-`docs/migration_from_liaise.md`) and `forcing/prepare_liaise_forcing_ecland.py`
-near-unchanged, as the two lowest-risk, highest-confidence Category
-A/near-A files — this unblocks writing `forcing/validate_wfde5.py` against a
-real (if small, e.g. one month) downloaded WFDE5 file, which is the actual
-prerequisite for Milestone 1's remaining items.
+`init_clim/init_clim.py` and `cama_flood/build_global_cmf_fixdir.sh` (+
+vendored companions) are now ported (see Milestone 0) but **not executed**.
+Next: port `forcing/prepare_liaise_forcing_ecland.py` near-unchanged (the
+remaining near-A file), then write `forcing/validate_wfde5.py` against a
+real (if small, e.g. one month) downloaded WFDE5 file — that download is the
+actual prerequisite for exercising anything ported so far, since neither
+`init_clim.py` nor the fixdir builder has been run against real data in this
+repository yet.
