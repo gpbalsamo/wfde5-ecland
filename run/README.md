@@ -1,21 +1,57 @@
 # run/
 
-Annual ecLand run driver, restart chaining, and diagnostics.
+ecLand run driver and diagnostics.
 
-Status: **not started**. Planned, generalising `liaise-ecland/run/run_liaise_ecland.{sh,slurm}`:
+Status: **one-day global pilot DONE and validated** (2026-09-19) — see
+`PLAN.md` Milestone 3. Path taken generalises from ecland's own official
+tooling (`/perm/pad/ecland/share/ecland/scripts/`), **not**
+`liaise-ecland/run/run_liaise_ecland.{sh,slurm}` — that script targets an
+older/different namelist convention; ecland's own `ecland_create_namelist.py`
++ `ecland_run_model.sh` are what its own currently-shipped test suite
+(`tests/2D_EU-001_20220101-20220102`) actually uses, so this repo calls
+those directly rather than reimplementing namelist patching.
 
-- `run_ecland.sh` / `run_ecland.slurm` — CLI-driven (`--start-date`, `--end-date`,
-  `--forcing-dir`, `--surfclim`, `--soilinit`, `--output-dir`, `--ecland-exe`,
-  `--namelist`, `--dry-run`), no region name or grid dimensions encoded.
-  Must preserve two hard-won correctness fixes from the reference repo (see
-  `docs/migration_from_liaise.md`): the restart chain must actually be verified
-  to carry state across the year boundary (not just assumed because a restart
-  file was staged), and the OpenMP thread count must be an explicit, logged
-  decision rather than an inherited shell default.
-- `postprocess_ecland.sh` — generalised from `postprocess_liaise_ecland.sh`.
-- `check_water_budget.py` / `check_energy_budget.py` — the *equation and sign
-  convention* from the reference repo's copies (imported there, unmodified,
-  from `plumber2-ecland`) are reused; the area-weighted **global** aggregation
-  is new code, since the reference versions are per-site.
-- `check_run.py` — new. Minimal "did this actually run" check: exit code, NaN
-  scan, restart-chain verification.
+- `run_ecland.sh` — stages surfclim/soilinit and a WFDE5-derived forcing
+  slice (via `forcing/preprocess_wfde5.py`) into the exact directory layout
+  ecland's official scripts expect, then calls them. Direct execution, no
+  `sbatch`/`srun` — a one-day global run is tiny (matches `benchmark.yaml`'s
+  `smoke` profile). Env-var driven (`STA`, `START_DATE`, `N_HOURS`,
+  `ECLAND_ROOT`, `ECLAND_EXE`, `FORCING_SOURCE`, `SURFCLIM_SOURCE`,
+  `SOILINIT_SOURCE`), no region name or grid dimensions hardcoded.
+- `check_run.py` — minimal "did this actually run" check: `run.log` has no
+  Fortran abort marker, `restartout.nc` exists, no NaN/Inf in any `o_*.nc`
+  variable (excluding ecLand's own `1e20` fill value). **Not** a water/energy
+  budget closure check — that's still planned, separate, and NOT STARTED.
+- `check_water_budget.py` / `check_energy_budget.py` — **NOT STARTED**. The
+  *equation and sign convention* from `liaise-ecland`'s copies (imported
+  there, unmodified, from `plumber2-ecland`) are reused when written; the
+  area-weighted **global** aggregation is new code, since the reference
+  versions are per-site.
+- `postprocess_ecland.sh` — **NOT STARTED**.
+
+## Requires (module load), confirmed 2026-09-19
+
+`ecland-master-dp` is MPI-linked (HPC-X OpenMPI). Before running:
+
+```bash
+module load prgenv/intel intel/2021.4 hpcx-openmpi/2.9.0
+```
+
+Two gotchas found the hard way:
+- Loading `nco` in the same `module load` command as this MPI stack (either
+  order) silently breaks `LD_LIBRARY_PATH` again — load them in separate
+  commands/scripts.
+- **Never pipe a `module load` command's output** (e.g. `module load ... |
+  tail -3`) — piping forks a subshell, and the environment changes it makes
+  never reach the calling shell. Redirect (`module load ... >log 2>&1`)
+  instead if you want to suppress the noisy "reloaded" message.
+
+## A real bug this caught (2026-09-19)
+
+WFDE5 is a land-only product (unlike ERA5, which has no ocean gaps).
+`forcing/preprocess_wfde5.py`'s first version filled WFDE5's masked ocean
+cells with `0.0`; `ecland-master-dp`'s `surfexcdriver_ctl` crashed with a
+floating-point invalid-operation signal at `Tair=0 K`/`PSurf=0 Pa` on the
+very first timestep. Fixed by filling masked cells with numerically-safe
+reference-atmosphere constants instead — see that script's own
+`MASKED_FILL_VALUES` and `docs/forcing_variables.md`.

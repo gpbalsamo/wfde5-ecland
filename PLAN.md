@@ -157,14 +157,58 @@ the reasoning trail)**:
 
 ## Milestone 3 — pilot ecLand run
 
-- [ ] One day, global — **NOT STARTED**.
+- [x] One day, global — **DONE** 2026-09-19: `run/run_ecland.sh` ran
+      `ecland-master-dp` (real executable at `/perm/pad/ecland/build/bin/`)
+      for 1988-01-01 00:00 -> 1988-01-02 00:00 (48 half-hour steps), global
+      0.5°, using the real downloaded WFDE5 forcing and the real
+      `ecland_create_forcing.py`-built surfclim/soilinit. Completed in 106s.
+      `run/check_run.py` reports **PASS**: `run.log` clean (no Fortran abort
+      marker), `restartout.nc` present, zero NaN/Inf in any `o_*.nc`
+      variable (excluding ecLand's own `1e20` fill value over masked/ocean
+      cells). 87,798 land points; `AvgSurfT` 197.5-325.4 K, `SoilTemp`
+      215.9-316.1 K on land -- physically plausible for a global January
+      day, not independently validated against observations.
 - [ ] One month, global — **NOT STARTED**.
 - [ ] One complete year, global — **NOT STARTED**.
 - [ ] Verify energy budget — **NOT STARTED** (equation carried from
       `liaise-ecland`'s verified convention, see `docs/forcing_variables.md`;
       the *global, area-weighted* aggregation code does not exist yet).
+      `run/check_run.py` is a NaN/crash check, not a budget-closure check.
 - [ ] Verify water budget — **NOT STARTED**, same caveat.
 - [ ] Quantify global runoff totals — **NOT STARTED**.
+
+**A real bug was found and fixed getting here (2026-09-19)**: WFDE5 is a
+**land-only** product (masks ocean intentionally, unlike ERA5, which has no
+gaps) — `forcing/preprocess_wfde5.py`'s first version filled masked
+(ocean) cells with `0.0`, and ecLand's Fortran `surfexcdriver_ctl` is not
+tolerant of `Tair=0 K`/`PSurf=0 Pa` at masked points: it crashed with a
+floating-point invalid-operation signal on the very first timestep. Fixed
+by filling masked cells with numerically-safe reference-atmosphere
+constants instead (`MASKED_FILL_VALUES` in that script) — ocean-cell
+*outputs* are meaningless regardless (surfclim's own land-sea mask is what
+determines scientific validity), confirmed by ecLand's own output correctly
+using its `1e20` fill marker over those cells rather than propagating the
+placeholder values. Covered by `tests/test_preprocess_wfde5.py`.
+
+**Path taken for the run driver**: not a hand-rolled namelist/run script.
+`namelist/templates/namelist_ecland_50R1_ctl` is ecland's own official,
+currently-shipped `{}`-placeholder template (ported unchanged from
+`/perm/pad/ecland/namelists/`, the same one its own
+`tests/2D_EU-001_20220101-20220102` test case uses), and `run/run_ecland.sh`
+calls ecland's own official `share/ecland/scripts/ecland_create_namelist.py`
++ `ecland_run_model.sh` rather than reimplementing namelist patching. Direct
+execution, no `sbatch`/`srun` (matches `benchmark.yaml`'s `smoke` profile,
+`require_confirmation: false`).
+
+**Environment gotcha worth remembering**: `ecland-master-dp` is MPI-linked
+(`hpcx-openmpi/2.9.0`) and needs `module load prgenv/intel intel/2021.4
+hpcx-openmpi/2.9.0` before it will run (`libmpi_usempif08.so.40` missing
+otherwise). Loading `nco` in the same `module load` invocation as the MPI
+stack silently breaks `LD_LIBRARY_PATH` again (observed directly, order
+didn't matter) — load them separately. Also: piping a `module load`
+command's output through anything (e.g. `| tail`) forks a subshell and the
+environment changes never reach the calling shell — redirect
+(`>file 2>&1`), never pipe, when you need the loaded modules to stick.
 
 ## Milestone 4 — runoff-to-CaMa interface
 
@@ -250,14 +294,22 @@ with status `NOT_IMPLEMENTED` (exit code 2) — Gates 1-5 depend on Milestones
 
 ## Immediate next step
 
-Milestone 1's first real month of WFDE5 forcing (2026-09-17) and Milestone
-2's global `surfclim`/`soilinit` (2026-09-19, validated against that same
-forcing's grid) are both done for a single reference date (1988-01/1988-01-01).
-Next: **namelist + run driver** (Milestone 2/3's remaining gap) —
-`namelist/templates/` is still empty and `run/run_ecland.sh` does not exist.
-This machine already has a working ecLand executable
-(`/perm/pad/ecland/build/bin/ecland-master-dp`), so once a namelist and run
-driver exist, the one-day pilot (`README.md` "Pilot strategy", Test A) is
-reachable — write `forcing/validate_wfde5.py` first, though, since nothing
-has yet automated the open questions in `docs/forcing_variables.md` beyond
-one ad hoc spot-check.
+Milestones 1-3 have each now produced one real, validated result: one month
+of WFDE5 forcing (2026-09-17), one global surfclim/soilinit build
+(2026-09-19), and one one-day global ecLand pilot run, PASS
+(2026-09-19) — see each milestone's own entry above for the real numbers
+and the real bug (WFDE5's masked-ocean-cell fill value) that had to be
+fixed to get there.
+
+Two reasonable next steps, neither started:
+1. **Scale the pilot**: one month, then one full year, global (`README.md`
+   "Pilot strategy" Tests B/C) — reuse `run/run_ecland.sh` with a larger
+   `N_HOURS`/different `STA`, but note `NSTOP` for a full month/year needs a
+   correspondingly larger forcing slice from `preprocess_wfde5.py`, and nothing
+   has verified the model's actual runtime/memory cost at that scale yet.
+2. **Formalise the validation gate**: `forcing/validate_wfde5.py` (structural
+   QC, still doesn't exist — the grid facts in `docs/forcing_variables.md`
+   came from ad hoc inspection, not an automated check) and
+   `run/check_water_budget.py`/`check_energy_budget.py` (global, area-weighted
+   budget closure — `run/check_run.py` only checks for NaN/crash, not
+   physical consistency).

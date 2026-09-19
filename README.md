@@ -242,61 +242,79 @@ that, so no config edit is needed for the date range itself — only the
 machine-specific paths, and your own `~/.cdsapirc` (never committed; see
 `.gitignore`). **Status: real file, but nothing downstream consumes it yet.**
 
-### 3. Get the forcing — Milestone 1, **not yet available**
+### 3. Get the forcing — Milestone 1, **real month downloaded**
 
 ```bash
-python3 forcing/download_wfde5.py --start-year 1988 --end-year 2024 --output-dir ...   # planned
-python3 forcing/preprocess_wfde5.py --input-dir ... --output-dir ... \
-    --start-year 1988 --end-year 2024                                                  # planned
-python3 forcing/validate_wfde5.py --input-dir ...                                      # planned
+python3 forcing/download_wfde5.py --start-year 1988 --end-year 1988 --months 01 \
+    --output-dir forcing/WFDE5_CRU_GPCC
 ```
 
-Unlike `liaise-ecland` (IPSL mirror for 1988-2014 + CDS for 2015-2024), this
-repo's global request has only one source — the CDS `cru`/`cru_and_gpcc`
-split (see `docs/forcing_variables.md`) — since the IPSL mirror is a
-LIAISE-domain-specific product. None of these three scripts exist yet; see
-`forcing/README.md`.
+*Real, run 2026-09-17*: `forcing/WFDE5_CRU_GPCC_1988_01-01.nc` (1.2 GB, 744
+hourly steps, global 360x720). Unlike `liaise-ecland` (IPSL mirror for
+1988-2014 + CDS for 2015-2024), this repo's global request has only one
+source — the CDS `cru`/`cru_and_gpcc` split (see `docs/forcing_variables.md`)
+— since the IPSL mirror is a LIAISE-domain-specific product.
+`forcing/validate_wfde5.py` (a dedicated structural-QC script) still does
+**not exist** — the grid facts recorded in `docs/forcing_variables.md` so
+far came from ad hoc inspection of this file, not an automated gate.
 
-### 4. Install the ancillary fields — Milestone 2, **not yet available**
+### 4. Install the ancillary fields — Milestone 2, **real global build**
 
 ```bash
-init_clim/init_clim.sh                    # ported, never yet run against real global input
-python3 init_clim/validate_init_grid.py   # planned, does not exist yet
+module load nco
+init_clim/build_global_surfclim_soilinit.sh
 ```
 
-`init_clim/init_clim.py` itself is already ported unchanged from
-`liaise-ecland` (see `docs/migration_from_liaise.md`), already
-grid-shape-agnostic, but has never been executed in this repository.
+*Real, run 2026-09-19*: `surfclim_GLOBAL_1988-2024.nc` (8.8 MB) and
+`surfinit_GLOBAL_1988-2024.nc` (4.9 MB), 360x720. **Not** `init_clim.py` —
+that script's own `osm_pyutils.grid_gaussian` import no longer resolves
+against the current ecland checkout (see `docs/migration_from_liaise.md`'s
+corrected entry). Uses ecland's own actively-maintained
+`tools/create_forcing/ecland_create_forcing.py` instead, with a global
+bounding box at cell-center corners matching WFDE5's real grid exactly —
+`init_clim/validate_init_grid.py` confirms this (**PASS**).
 
-### 5. Choose a namelist — Milestone 2/3, **not yet available**
+### 5. Choose a namelist — Milestone 2/3, **real, ecland's own official template**
 
-`namelist/templates/` holds only a `.gitkeep` until a pilot grid is chosen —
-see `namelist/README.md` for the env-var-driven templating pattern this will
-follow, generalised from `liaise-ecland/namelist/create_liaise_namelist.sh`.
+`namelist/templates/namelist_ecland_50R1_ctl` — ecland's own official
+`{}`-placeholder template (ecland VERSION 2.0.0), ported unchanged, the same
+one its own `tests/2D_EU-001_20220101-20220102` test uses. Not
+`liaise-ecland/namelist/create_liaise_namelist.sh`'s pattern — see
+`namelist/README.md`.
 
-### 6. Run ecLand — Milestone 3, **not yet available**
+### 6. Run ecLand — Milestone 3, **one-day global pilot DONE**
 
 ```bash
-run/run_ecland.sh --start-date 1988-01-01 --end-date 2024-12-31 \
-  --forcing-dir ... --surfclim ... --soilinit ... --ecland-exe ... --namelist ...   # planned
+module load prgenv/intel intel/2021.4 hpcx-openmpi/2.9.0
+run/run_ecland.sh
 ```
 
-The full 1988-2024 run is not the first thing this repo attempts even once
-`run_ecland.sh` exists — **the staged pilot (one day → one month → one full
-year, each validated) must pass first**, see "Pilot strategy" above and
-`PLAN.md` Milestone 3. This is a hard rule (`CLAUDE.md`), not a suggestion.
+*Real, run 2026-09-19*: 1988-01-01 -> 1988-01-02, global 0.5°, 48 half-hour
+steps, 106 seconds, using the real WFDE5 forcing and surfclim/soilinit
+above. `run/run_ecland.sh` calls ecland's own official
+`ecland_create_namelist.py` + `ecland_run_model.sh`, not a hand-rolled
+driver. **A real bug was caught and fixed here**: WFDE5 is land-only
+(unlike ERA5); naively filling its masked ocean cells with `0.0` crashed
+`ecland-master-dp`'s surface-exchange physics on the first timestep — see
+`run/README.md`. The full 1988-2024 run is not attempted next even though
+one day now works — **the staged pilot (one day → one month → one full
+year, each validated) must still pass first**, see "Pilot strategy" above
+and `PLAN.md` Milestone 3. This is a hard rule (`CLAUDE.md`), not a
+suggestion, and only one day has run so far.
 
-### 7. Check the output — Milestone 3, **not yet available**
+### 7. Check the output — Milestone 3, **minimal check DONE, budget closure NOT STARTED**
 
 ```bash
-python3 run/check_water_budget.py ...     # planned: global, area-weighted
-python3 run/check_energy_budget.py ...    # planned: global, area-weighted
+python3 run/check_run.py --output-dir run/output/GLOBAL_19880101-19880102
 ```
 
-The *equation* (`Rainf+Snowf+Evap+Qs+Qsb -
-DelIntercept-DelSoilMoist-DelSWE-DelAquifer ≈ 0`) is verified, carried from
-`liaise-ecland`'s per-site version; the global, area-weighted aggregation is
-new code that does not exist yet.
+*Real, PASS*: `run.log` clean, `restartout.nc` present, zero NaN/Inf in any
+`o_*.nc` variable (excluding ecLand's own `1e20` fill value over masked
+cells). This is **not** a water/energy budget closure check —
+`run/check_water_budget.py`/`check_energy_budget.py` (the *equation*,
+`Rainf+Snowf+Evap+Qs+Qsb - DelIntercept-DelSoilMoist-DelSWE-DelAquifer ≈ 0`,
+verified from `liaise-ecland`'s per-site version) are still **not started**;
+the global, area-weighted aggregation code does not exist yet.
 
 ## Running coupled to CaMa-Flood
 
@@ -320,8 +338,12 @@ start, not discovered the way `liaise-ecland` did — see
 
 See [`PLAN.md`](PLAN.md) for the itemised, honestly-labelled milestone list
 (DONE / IN PROGRESS / BLOCKED / NOT STARTED / NOT VERIFIED). As of this
-writing: Milestone 0 (repository migration) is in progress; nothing past it
-has started.
+writing: Milestone 0 (repository migration) and Milestone 8 Gate 0 are done;
+Milestones 1-3 have each produced one real, validated result (one month of
+WFDE5 forcing, one global surfclim/soilinit build, one one-day global
+ecLand pilot run) but none has been scaled beyond that single instance;
+Milestones 4-7 (CaMa-Flood interface, routing, gauge validation, forcing
+sensitivity) have not started.
 
 ## Roadmap
 

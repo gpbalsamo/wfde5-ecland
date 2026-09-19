@@ -2,20 +2,29 @@
 
 WFDE5_CRU_GPCC acquisition and preparation for ecLand.
 
-Status: **`download_wfde5.py` ported and generalised, syntax-checked and
-covered by synthetic tests (`tests/test_download_wfde5.py`), but NOT YET RUN
-against a real CDS request** — see `PLAN.md` Milestone 1. The rest is not
-started:
+Status: **`download_wfde5.py` run for real (one real month downloaded and
+assembled); `preprocess_wfde5.py` written and used in a real one-day ecLand
+pilot** — see `PLAN.md` Milestones 1 and 3.
 
 - `download_wfde5.py` — CDS retrieval of the `derived-near-surface-meteorological-variables`
   dataset, global 0.5°, generalised from `liaise-ecland/forcing/get_liaise_forcing_05_cds.py`
   (see `docs/migration_from_liaise.md`) by removing the regional crop step.
   Supports `--months` for a cheap single-month first request and `--dry-run`
   to print the exact CDS requests/output paths without calling CDS or
-  writing anything — use `--dry-run` before ever running it for real.
-- `preprocess_wfde5.py` — time-axis rebasing and annual endpoint handling, ported
-  near-unchanged from `liaise-ecland/forcing/prepare_liaise_forcing_ecland.py`.
-  **Not started.**
+  writing anything. **Run for real 2026-09-17**:
+  `forcing/WFDE5_CRU_GPCC_1988_01-01.nc` (1.2 GB, 744 hourly steps).
+- `preprocess_wfde5.py` — **not** a port of
+  `liaise-ecland/forcing/prepare_liaise_forcing_ecland.py` (that script only
+  handles year-boundary endpoint stitching; a genuinely new problem showed
+  up first). Converts a `download_wfde5.py` file into ecland's own
+  `met_2DHT_<site>.nc` forcing format (variable renames, `Wind` split into
+  fictitious-direction `Wind_E`/`Wind_N` components — ecLand's physics uses
+  speed only — and, critically, numerically-safe fill values for WFDE5's
+  masked ocean cells: filling them with `0.0` crashed `ecland-master-dp`'s
+  surface-exchange physics on the very first timestep, since WFDE5 is
+  land-only and `Tair=0 K`/`PSurf=0 Pa` are not physically representable.
+  See `PLAN.md` Milestone 3 and `run/README.md`. Covered by
+  `tests/test_preprocess_wfde5.py`.
 - `validate_wfde5.py` — structural QC (dimensions, coordinate ordering, units,
   fill values, timestamps) with a `--strict` mode. See `docs/forcing_variables.md`
   for the variable/unit table this validates against. **Not started** — this

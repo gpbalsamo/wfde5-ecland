@@ -37,8 +37,11 @@ to confirm the repository is still internally consistent.
 | Path | What it does | Status |
 |---|---|---|
 | `scripts/benchmark.py` | Deterministic benchmark CLI (this file's subject) | Gate 0 only implemented |
-| `forcing/download_wfde5.py` | Global WFDE5 CDS retrieval + assembly | Ported/generalised, tested on synthetic fixtures, not yet run against real CDS |
-| `init_clim/init_clim.py` | Builds `surfclim`/`soilinit` on the model grid | Ported, not yet run here |
+| `forcing/download_wfde5.py` | Global WFDE5 CDS retrieval + assembly | **Run for real**: one month, 1988-01 |
+| `forcing/preprocess_wfde5.py` | WFDE5 -> ecLand `met_2DHT` forcing format | **Run for real**, used in the one-day pilot |
+| `init_clim/build_global_surfclim_soilinit.sh` | Builds global `surfclim`/`soilinit` (ecland's own tooling) | **Run for real**, validated grid match |
+| `run/run_ecland.sh` | Runs `ecland-master-dp` for a global window | **Run for real**: one-day global pilot, PASS |
+| `run/check_run.py` | NaN/crash check on ecLand output | Real check, not yet a budget-closure check |
 | `cama_flood/build_global_cmf_fixdir.sh` | Builds the global CaMa-Flood fix bundle | Ported, not yet run here |
 | `cama_flood/aggregate_runoff_to_daily.py` | Hourly->daily runoff aggregation | Reference copy, LIAISE-specific, not generalised |
 
