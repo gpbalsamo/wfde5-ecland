@@ -69,16 +69,43 @@ local coding agent, separate from the scientific milestones (0-7).
 
 ## Milestone 2 — ecLand climatology + initialization
 
-- [ ] Construct `surfclim` on the exact model grid — **NOT STARTED**.
-- [ ] Construct `soilinit` on the exact model grid — **NOT STARTED**.
-- [ ] Validate shape/coordinates/mask — **NOT STARTED**
-      (`init_clim/validate_init_grid.py` does not exist yet; see
-      `docs/grid_strategy.md` for exactly what it must check).
-- [ ] No accidental flattening/reordering — **NOT VERIFIABLE** until the
-      above exists.
+- [x] Construct `surfclim` on the exact model grid — **DONE** 2026-09-19:
+      `init_clim/build_global_surfclim_soilinit.sh` runs ecland's own
+      `tools/create_forcing/ecland_create_forcing.py` (2D pipeline, global
+      bounding box) and produces `surfclim_GLOBAL_1988-2024.nc` (8.8 MB,
+      360x720). Real MARS retrieval: 26 ERA5 fields, 27.2 MB, 4 seconds
+      (`class=ea, type=an, date=19880101`); the static climatology
+      (`climate.v015/639l_2`) is a direct file copy, no retrieval.
+- [x] Construct `soilinit` on the exact model grid — **DONE** 2026-09-19,
+      same run: `surfinit_GLOBAL_1988-2024.nc` (4.9 MB, 360x720).
+- [x] Validate shape/coordinates/mask — **DONE, real check, real bug
+      found and fixed**: `init_clim/validate_init_grid.py` compares
+      forcing/surfclim/soilinit pairwise. First real run caught a genuine
+      grid mismatch — the tool writes latitude in native MARS/GRIB order
+      (descending, north-to-south); WFDE5 is ascending. Fixed by
+      `init_clim/flip_latitude_to_ascending.py` (now wired into the build
+      script automatically, not a manual step). After the fix:
+      `validate_init_grid.py` reports **PASS** — 360x720 lat/lon identical
+      across all three files (lat -89.75..89.75, lon -179.75..179.75).
+      Land-mask agreement (WFDE5 coverage vs. surfclim's ERA5-derived
+      `landsea`) is 98.0% — reported as informational, not a hard
+      pass/fail, since the two masks are independently derived (see the
+      script's own docstring).
+- [x] No accidental flattening/reordering — **VERIFIED**: output is a
+      proper `(lat, lon)` gridded NetCDF (not the flattened `x`-point
+      representation `init_clim.py`'s `gen_file` would have produced),
+      confirmed by `validate_init_grid.py` reading `lat`/`lon` directly.
+      Covered by 5 synthetic-fixture tests, `tests/test_init_clim_grid.py`.
 
-**Investigation findings, 2026-09-17 (paused here, no MARS spend yet —
-read this before re-investigating from scratch)**:
+**Path taken**: ecland's own `ecland_create_forcing.py` (Option B from the
+2026-09-17 investigation below), not a patched `init_clim.py`. Config
+template: `init_clim/config_global.yaml.tmpl` (rendered by the build script
+via `envsubst`) — global box `clatn=89.75/clats=-89.75/clonw=-179.75/
+clone=179.75, dx=0.5` (cell-center corners, exactly matching WFDE5's real
+grid, not the naive `90/-180/-90/180` grid-line corners).
+
+**Investigation findings, 2026-09-17 (superseded by the above — kept for
+the reasoning trail)**:
 
 - `init_clim/init_clim.py`'s own import, `from osm_pyutils import
   grid_gaussian as gg`, **does not resolve against the current
@@ -223,14 +250,14 @@ with status `NOT_IMPLEMENTED` (exit code 2) — Gates 1-5 depend on Milestones
 
 ## Immediate next step
 
-`forcing/download_wfde5.py` is now ported/generalised (see Milestone 1) but,
-like `init_clim/init_clim.py` and `cama_flood/build_global_cmf_fixdir.sh`
-(Milestone 0), **not executed against anything real**. Next: get explicit
-approval to spend CDS quota, then actually run
-`python3 forcing/download_wfde5.py --start-year 1988 --end-year 1988
---months 01` — one real month, not a full year — to get the first real
-downloaded WFDE5 file this repository has ever had. That file is the
-prerequisite for writing `forcing/validate_wfde5.py` (which answers the open
-grid/timestamp questions in `docs/forcing_variables.md` against real data)
-and for exercising `init_clim.py`/the fixdir builder meaningfully, since none
-of the ported code has been run against real data in this repository yet.
+Milestone 1's first real month of WFDE5 forcing (2026-09-17) and Milestone
+2's global `surfclim`/`soilinit` (2026-09-19, validated against that same
+forcing's grid) are both done for a single reference date (1988-01/1988-01-01).
+Next: **namelist + run driver** (Milestone 2/3's remaining gap) —
+`namelist/templates/` is still empty and `run/run_ecland.sh` does not exist.
+This machine already has a working ecLand executable
+(`/perm/pad/ecland/build/bin/ecland-master-dp`), so once a namelist and run
+driver exist, the one-day pilot (`README.md` "Pilot strategy", Test A) is
+reachable — write `forcing/validate_wfde5.py` first, though, since nothing
+has yet automated the open questions in `docs/forcing_variables.md` beyond
+one ad hoc spot-check.
