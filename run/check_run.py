@@ -56,6 +56,14 @@ def check_restart_exists(output_dir: Path) -> list[str]:
     return []
 
 
+def _count_bad_slice(data: np.ndarray) -> tuple[int, int]:
+    """NaN/Inf counts for one slice, ignoring ecLand's own fill value."""
+    finite_mask = ~np.isclose(data, FILL_VALUE, atol=FILL_ATOL, rtol=0.0)
+    n_nan = int(np.count_nonzero(np.isnan(data) & finite_mask))
+    n_inf = int(np.count_nonzero(np.isinf(data) & finite_mask))
+    return n_nan, n_inf
+
+
 def check_no_nan_inf(output_dir: Path) -> list[str]:
     errors = []
     o_files = sorted(output_dir.glob("o_*.nc"))
@@ -66,13 +74,19 @@ def check_no_nan_inf(output_dir: Path) -> list[str]:
             for name, var in ds.variables.items():
                 if var.ndim < 2:
                     continue
-                data = np.asarray(var[:], dtype=np.float64)
-                finite_mask = ~np.isclose(data, FILL_VALUE, atol=FILL_ATOL, rtol=0.0)
-                checked = data[finite_mask]
-                if checked.size == 0:
-                    continue
-                n_nan = int(np.isnan(checked).sum())
-                n_inf = int(np.isinf(checked).sum())
+                # Stream along the first (time) dimension rather than
+                # materialising the whole variable: a month of global 0.5
+                # degree output is tens of GB per file, and loading one
+                # variable whole (plus a float64 upcast and a boolean-mask
+                # copy) got this script OOM-killed against the real
+                # 1988-01 coupled run. Keep peak memory to one slice.
+                n_nan = n_inf = 0
+                for i in range(var.shape[0]):
+                    n_bad = _count_bad_slice(np.ma.filled(var[i], FILL_VALUE))
+                    n_nan += n_bad[0]
+                    n_inf += n_bad[1]
+                    if n_nan or n_inf:
+                        break  # one bad value is enough to fail; stop reading
                 if n_nan or n_inf:
                     errors.append(f"{path.name}:{name}: {n_nan} NaN, {n_inf} Inf (excluding fill value)")
     return errors

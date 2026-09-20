@@ -212,24 +212,78 @@ environment changes never reach the calling shell — redirect
 
 ## Milestone 4 — runoff-to-CaMa interface
 
+**Important scope correction (2026-09-20)**: this milestone was written
+assuming an *offline/decoupled* hand-off (ecLand writes runoff → a separate
+tool remaps it → CaMa-Flood reads it), matching `liaise-ecland`'s
+CaMa-Flood-GPU bridge work. The path this repo actually took is the
+**online, in-memory 1-way coupling** built into ecLand itself:
+`cnt41s.F90` calls `CMF_FORCING_PUT` + `CMF_DRV_ADVANCE` directly every
+`TCOUPFREQ`, with no runoff file ever written or read, and the
+Qs/Qsb sign handling done inside ecLand's own Fortran. The items below are
+therefore only needed if this repo later wants a decoupled chain as well.
+
 - [x] Define Qs + Qsb convention — **DONE as a design decision**,
       `total_runoff = -(Qs + Qsb)`, verified in the reference project against
       real Fortran discharge (0.2-3% agreement) — see
-      `docs/forcing_variables.md`. **NOT YET IMPLEMENTED OR RE-VERIFIED** in
-      this repo's own code.
-- [ ] Temporal aggregation — **NOT STARTED** (`aggregate_runoff_to_daily.py`
-      not yet ported).
-- [ ] Area conversion — **NOT STARTED**.
-- [ ] Derive conservative mapping weights — **NOT STARTED**
-      (`derive_cmf_weights.sh`'s remap core not yet ported/generalised).
-- [ ] Prove global water conservation before routing — **NOT STARTED**
-      (`cama_flood/validate_remapping.py` does not exist yet).
+      `docs/forcing_variables.md`. Not re-verified in this repo's own code,
+      and **not needed for the online coupled path actually used**.
+- [x] Derive conservative mapping weights — **DONE** 2026-09-20,
+      `cama_flood/derive_global_cmf_weights.sh` (new; generalises
+      `derive_cmf_weights.sh` by dropping its clip and mpireg-flattening
+      steps entirely). Real run at `glb_15min`: `inpmat.nc` mapping this
+      repo's own 360x720 ecLand grid onto the global river network,
+      **0.00% area-conservation error** after correction.
+- [ ] Temporal aggregation / area conversion / offline conservation check
+      (`aggregate_runoff_to_daily.py`, `validate_remapping.py`) —
+      **NOT STARTED, and not on the critical path** for the online coupled
+      configuration (see scope correction above).
 
 ## Milestone 5 — CaMa-Flood
 
-- [ ] Pilot basin first if useful — **NOT STARTED**.
-- [ ] Global routing — **NOT STARTED**.
-- [ ] Output Q, river storage, flood storage, flood fraction — **NOT STARTED**.
+- [x] Global routing — **DONE** 2026-09-20: a full calendar month
+      (1988-01-01 → 1988-01-31, 1486 half-hour steps) of global 0.5°
+      ecLand coupled to CaMa-Flood at `glb_15min`, **hourly coupling**
+      (`TCOUPFREQ=1`, matching operational configuration), real 2-rank MPI
+      with a genuine 2-region `mpireg.nc` (126,192/126,191 cell split, not
+      flattened). Ran via `run/run_ecland_cmf.slurm` (SLURM batch,
+      `--mem=32G`, submitted only after explicit approval per `AGENTS.md`).
+      743 `CMF_FORCING_PUT`/`CMF_DRV_ADVANCE` cycles — exactly hourly over
+      744 h.
+- [x] Output Q, river storage, flood storage, flood depth — **DONE**, same
+      run: `o_totout.nc`, `o_rivsto.nc`, `o_fldsto.nc`, `o_rivdph.nc`
+      (124 MB each) plus ecLand's own `o_gg.nc`/`o_wat.nc`/`o_efl.nc`.
+- [ ] Pilot basin first if useful — skipped; went straight to global, which
+      worked.
+
+**Performance, measured (not estimated)**: 2901 s wall for 31 simulated
+days on 2 ranks = **938.8 forecast days per day** (the model's own metric),
+1.92 s per 30-min step, ~93.6 s per simulated day. CaMa coupling accounted
+for ~890 s (~31%) of the 2849 s time-step loop, at ~1.1-1.7 s per hourly
+coupling call. **Parallel efficiency is poor and needs attention before
+scaling**: the uncoupled 1-rank one-day run (Milestone 3) reported 875.5
+forecast days per day, so doubling ranks *and* adding CaMa netted only ~7%
+more throughput. Extrapolated, 1988-2024 would be ~14.4 wall-clock days
+continuous at this configuration.
+
+**Output volume is the bigger practical blocker than runtime**: one
+simulated month produced ~60 GB (`o_gg.nc` alone 38.5 GB), i.e. ~27 TB for
+37 years. `NFRPOS`/`LWRGG` and the output-variable selection need
+revisiting before any multi-year run, ahead of the forcing-memory question
+in "Open blockers".
+
+**Four real bugs were found and fixed getting here** — see
+`cama_flood/README.md` for the full account: a `gen_inpmat.py` netCDF
+chunking/HDF5 crash needing `liaise-ecland`'s `cdo` re-write step;
+`ecland-master-cmflood-dp` being a *standalone* CaMa-only driver rather
+than the coupled executable (the coupled one is plain `ecland-master-dp`);
+`TCOUPFREQ` being read in **hours**, not seconds; and CaMa's `COUTDIR`
+defaulting relative to an ephemeral run directory. A fifth, cosmetic, was
+found by this run's own tail: `ecland_run_model.sh` hardcodes
+`mv restart<YYYYMMDDHH>.nc`, so `LRESTCDF=.FALSE.` (binary restarts, the
+T21 reference's default) made that last step fail after an otherwise fully
+successful run — `namelist/templates/namelist_cmf_global.tmpl` now sets
+`LRESTCDF=.TRUE.` (netCDF restarts), which both matches operations and
+fixes the mismatch.
 
 ## Milestone 6 — validation
 

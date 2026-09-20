@@ -100,7 +100,13 @@ CMPIREGNC="__CAMA_MPIREG__"
 &NRESTART
 CRESTDIR="./"
 CRESTSTO=""
-LRESTCDF=.FALSE.
+! netCDF restarts, not the T21 reference's plain-binary default: aligned
+! with what ECMWF operations does, and it also happens to fix a real
+! mismatch -- ecland_run_model.sh's cleanup hardcodes
+! `mv restart<YYYYMMDDHH>.nc`, so with LRESTCDF=.FALSE. CaMa wrote
+! restart1988013123.bin (+ .bin.pth) and that mv failed at the very end of
+! an otherwise fully successful month-long run (2026-09-20).
+LRESTCDF=.TRUE.
 CVNREST="restart"
 IFRQ_RST=0
 /
