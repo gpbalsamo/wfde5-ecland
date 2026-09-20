@@ -27,6 +27,11 @@ venv/
 !tests/fixtures/**/*.nc
 
 forcing/data/
+# CDS scratch: download_wfde5.py's --raw-dir. The extracted members are
+# *.nc (already covered above) but the in-flight *.download / *.zip are
+# not, and a single year is ~20 GB.
+forcing/WFDE5_CRU_GPCC_cds_raw/
+*.download
 init_clim/work/
 init_clim/output/
 run/output/

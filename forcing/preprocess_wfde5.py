@@ -58,6 +58,13 @@ VARIABLE_MAP = {
 }
 REQUIRED_SOURCE_VARS = tuple(VARIABLE_MAP.keys()) + ("Wind",)
 
+# How many hourly records to hold in memory at once while converting. One
+# variable-block costs TIME_BLOCK_HOURS*360*720*4 bytes at 0.5 deg, so 168
+# (a week) is ~174 MB -- small enough for an 8 GiB session, large enough
+# that NetCDF writes stay efficient. The whole-year alternative needed
+# ~82 GB and could not run at all.
+TIME_BLOCK_HOURS = 168
+
 # WFDE5 is a LAND-ONLY product (masks ocean intentionally -- it's a
 # bias-corrected reanalysis meant to force land-surface models over land,
 # unlike ERA5 itself, which has no ocean gaps). ecLand's Fortran
@@ -145,11 +152,6 @@ def convert(input_path: Path, output_path: Path, start_date: datetime, n_hours: 
         lat = np.asarray(src.variables["lat"][:], dtype=np.float32)
         lon = np.asarray(src.variables["lon"][:], dtype=np.float32)
 
-        data = {}
-        for src_name in REQUIRED_SOURCE_VARS:
-            var = src.variables[src_name][start_idx:end_idx]
-            data[src_name] = np.ma.filled(var, MASKED_FILL_VALUES[src_name]).astype(np.float32)
-
     if output_path.exists():
         if not overwrite:
             raise FileExistsError(f"{output_path} exists (use --overwrite)")
@@ -186,29 +188,56 @@ def convert(input_path: Path, output_path: Path, start_date: datetime, n_hours: 
         lonvar.units = "degrees_east"
         lonvar.axis = "X"
 
+        out_vars = {}
         for src_name, (out_name, units_str, long_name) in VARIABLE_MAP.items():
             var = dst.createVariable(out_name, "f4", ("time", "lat", "lon"))
-            var[:] = data[src_name]
             var.standard_name = long_name
             var.long_name = long_name
             var.units = units_str
             var._CoordinateAxisType = "Time Lat Lon"
+            out_vars[src_name] = var
 
         # Wind speed -> arbitrary-direction vector components (see module
         # docstring): sqrt(Wind_E^2 + Wind_N^2) == WFDE5's real Wind exactly.
         wind_e = dst.createVariable("Wind_E", "f4", ("time", "lat", "lon"))
-        wind_e[:] = data["Wind"]
         wind_e.standard_name = "Wind speed U component"
         wind_e.long_name = "Wind speed U component"
         wind_e.units = "m/s"
         wind_e._CoordinateAxisType = "Time Lat Lon"
 
         wind_n = dst.createVariable("Wind_N", "f4", ("time", "lat", "lon"))
-        wind_n[:] = np.zeros_like(data["Wind"])
         wind_n.standard_name = "Wind speed V component co"
         wind_n.long_name = "Wind speed V component co"
         wind_n.units = "m/s"
         wind_n._CoordinateAxisType = "Time Lat Lon"
+
+        # Copy in time blocks rather than whole variables. A single variable
+        # at 0.5 deg is n_hours*360*720*4 bytes -- 223 MB for a day but 9.1 GB
+        # for a leap year, and holding all eight source variables plus a
+        # zeros_like for Wind_N needed ~82 GB, which no interactive session
+        # (8 GiB cgroup here) survives. Blocking bounds peak memory at
+        # TIME_BLOCK_HOURS regardless of how long the run is.
+        with Dataset(input_path) as src:
+            for blk_start in range(0, n_hours, TIME_BLOCK_HOURS):
+                blk_end = min(blk_start + TIME_BLOCK_HOURS, n_hours)
+                s0, s1 = start_idx + blk_start, start_idx + blk_end
+                for src_name, var in out_vars.items():
+                    var[blk_start:blk_end] = np.ma.filled(
+                        src.variables[src_name][s0:s1], MASKED_FILL_VALUES[src_name]
+                    ).astype(np.float32)
+                # "Wind" is deliberately NOT in VARIABLE_MAP (it has no
+                # one-to-one output variable) -- it is appended to
+                # REQUIRED_SOURCE_VARS separately and split into components
+                # here, so it must be read outside the loop above.
+                wind_block = np.ma.filled(
+                    src.variables["Wind"][s0:s1], MASKED_FILL_VALUES["Wind"]
+                ).astype(np.float32)
+                wind_e[blk_start:blk_end] = wind_block
+                wind_n[blk_start:blk_end] = np.zeros_like(wind_block)
+                print(
+                    f"  wrote hours {blk_start}-{blk_end} of {n_hours} "
+                    f"({100.0 * blk_end / n_hours:.0f}%)"
+                )
 
         dst.Conventions = "CF-1.6"
         dst.source = str(input_path)
