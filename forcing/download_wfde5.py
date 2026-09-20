@@ -280,8 +280,17 @@ def rebase_time(values: np.ndarray, units: str, calendar: str) -> np.ndarray:
     )
 
 
-def load_timevarying(paths: list[Path], short_name: str) -> dict:
-    chunks = []
+def scan_timevarying(paths: list[Path], short_name: str) -> dict:
+    """Read only the coordinates of each file -- never the bulk data.
+
+    A year of one variable at 0.5 deg is 8784*360*720*4 = 9.1 GB, and
+    assembling a year used to hold every dynamic variable at once (~73 GB),
+    which the ECMWF session memory watchdog kills. The caller instead writes
+    each file's data straight into the output in a second pass, so only one
+    file's worth is ever resident. This returns everything needed to plan
+    that pass: the ordered files and the global time axis they form.
+    """
+    entries = []
     for path in sorted(paths):
         with Dataset(path) as ds:
             time_var = ds.variables["time"]
@@ -292,24 +301,24 @@ def load_timevarying(paths: list[Path], short_name: str) -> dict:
             )
             lat = np.asarray(ds.variables["lat"][:])
             lon = np.asarray(ds.variables["lon"][:])
-            data = ds.variables[short_name][:]
-            chunks.append((time_values, lat, lon, np.asarray(data)))
+        if time_values.size > 1 and not np.all(np.diff(time_values) > 0):
+            # The previous implementation globally argsort'ed the concatenated
+            # axis, which would silently paper over this. Refuse instead: a
+            # non-monotonic time axis inside one delivered file means the file
+            # is not what we think it is.
+            raise ValueError(f"{short_name}: {path.name} has a non-monotonic time axis")
+        entries.append({"path": path, "time": time_values, "lat": lat, "lon": lon})
 
-    chunks.sort(key=lambda c: c[0][0])
+    entries.sort(key=lambda e: e["time"][0])
 
-    ref_lat, ref_lon = chunks[0][1], chunks[0][2]
-    for time_values, lat, lon, _ in chunks:
-        if lat.shape != ref_lat.shape or not np.allclose(lat, ref_lat):
+    ref_lat, ref_lon = entries[0]["lat"], entries[0]["lon"]
+    for entry in entries:
+        if entry["lat"].shape != ref_lat.shape or not np.allclose(entry["lat"], ref_lat):
             raise ValueError(f"{short_name}: inconsistent latitude grid across files")
-        if lon.shape != ref_lon.shape or not np.allclose(lon, ref_lon):
+        if entry["lon"].shape != ref_lon.shape or not np.allclose(entry["lon"], ref_lon):
             raise ValueError(f"{short_name}: inconsistent longitude grid across files")
 
-    time_values = np.concatenate([c[0] for c in chunks])
-    data = np.concatenate([c[3] for c in chunks], axis=0)
-
-    order = np.argsort(time_values)
-    time_values = time_values[order]
-    data = data[order]
+    time_values = np.concatenate([e["time"] for e in entries])
 
     increments = np.diff(time_values)
     if not np.allclose(increments, 1.0, atol=1.0e-6, rtol=0.0):
@@ -322,7 +331,7 @@ def load_timevarying(paths: list[Path], short_name: str) -> dict:
         "time": time_values,
         "lat": ref_lat,
         "lon": ref_lon,
-        "data": data.astype(np.float32),
+        "entries": entries,
     }
 
 
@@ -339,13 +348,16 @@ def load_static(paths: list[Path], short_name: str) -> dict:
     return {"lat": lat, "lon": lon, "data": np.asarray(data).astype(np.float32)}
 
 
-def _print_memory_estimate(n_dynamic_vars: int, n_time: int, n_lat: int, n_lon: int) -> None:
-    bytes_per_var = n_time * n_lat * n_lon * 4  # float32
-    total_gb = (n_dynamic_vars * bytes_per_var) / (1024**3)
+def _print_memory_estimate(
+    n_dynamic_vars: int, n_time: int, n_lat: int, n_lon: int, max_block_steps: int
+) -> None:
+    whole_gb = (n_dynamic_vars * n_time * n_lat * n_lon * 4) / (1024**3)
+    block_gb = (max_block_steps * n_lat * n_lon * 4) / (1024**3)
     print(
-        f"  memory estimate: {n_dynamic_vars} dynamic var(s) x {n_time} steps x "
-        f"{n_lat}x{n_lon} grid x 4 bytes =~ {total_gb:.1f} GiB resident at peak "
-        "(assembly holds every dynamic variable in memory at once, see module docstring)"
+        f"  memory: streaming one input file at a time -- peak ~{block_gb:.2f} GiB "
+        f"({max_block_steps} steps x {n_lat}x{n_lon} x 4 bytes). Holding all "
+        f"{n_dynamic_vars} dynamic var(s) x {n_time} steps at once would have "
+        f"needed ~{whole_gb:.1f} GiB."
     )
 
 
@@ -361,8 +373,8 @@ def assemble_period(year: int, months: list[str], nc_paths: list[Path], output_p
 
     dynamic = {}
     for short_name in sorted(SHORT_NAMES - STATIC_VARIABLES):
-        print(f"[{year}] loading {short_name} ({len(files_by_var[short_name])} file(s))")
-        dynamic[short_name] = load_timevarying(files_by_var[short_name], short_name)
+        print(f"[{year}] scanning {short_name} ({len(files_by_var[short_name])} file(s))")
+        dynamic[short_name] = scan_timevarying(files_by_var[short_name], short_name)
 
     static = {}
     for short_name in sorted(STATIC_VARIABLES):
@@ -374,7 +386,12 @@ def assemble_period(year: int, months: list[str], nc_paths: list[Path], output_p
     ref_lat = ref["lat"]
     ref_lon = ref["lon"]
 
-    _print_memory_estimate(len(dynamic), ref_time.size, ref_lat.size, ref_lon.size)
+    _max_block_steps = max(
+        e["time"].size for info in dynamic.values() for e in info["entries"]
+    )
+    _print_memory_estimate(
+        len(dynamic), ref_time.size, ref_lat.size, ref_lon.size, _max_block_steps
+    )
 
     for short_name, payload in dynamic.items():
         if payload["time"].shape != ref_time.shape or not np.allclose(
@@ -431,9 +448,31 @@ def assemble_period(year: int, months: list[str], nc_paths: list[Path], output_p
                     short_name, "f4", ("time", "lat", "lon"), fill_value=1.0e20,
                     zlib=True, complevel=4, shuffle=True,
                 )
-                var[:] = payload["data"]
                 var.units = units
                 var.long_name = long_name
+                # Stream each input file straight into its slice of the
+                # output instead of materialising the whole year first.
+                offset = 0
+                for entry in payload["entries"]:
+                    with Dataset(entry["path"]) as in_ds:
+                        block = np.asarray(in_ds.variables[short_name][:]).astype(
+                            np.float32
+                        )
+                    if block.shape[0] != entry["time"].size:
+                        raise ValueError(
+                            f"[{year}] {short_name}: {entry['path'].name} has "
+                            f"{block.shape[0]} records but {entry['time'].size} "
+                            "timestamps"
+                        )
+                    var[offset:offset + block.shape[0]] = block
+                    offset += block.shape[0]
+                    del block
+                if offset != ref_time.size:
+                    raise ValueError(
+                        f"[{year}] {short_name}: wrote {offset} records, "
+                        f"expected {ref_time.size}"
+                    )
+                print(f"[{year}]   wrote {short_name}: {offset} records")
 
             for short_name, payload in static.items():
                 units, long_name = VARIABLE_ATTRS[short_name]
