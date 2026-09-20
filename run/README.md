@@ -28,6 +28,11 @@ those directly rather than reimplementing namelist patching.
   area-weighted **global** aggregation is new code, since the reference
   versions are per-site.
 - `postprocess_ecland.sh` — **NOT STARTED**.
+- `run_ecland_cmf.slurm` — batch wrapper for `run_ecland.sh`'s `RUN_CMF=true`
+  path (see `cama_flood/README.md` for the coupled-run status). A 2-rank
+  coupled run needs more memory than this project's interactive session's
+  8 GiB cap allows regardless of run length -- submitted only after
+  explicit user approval, per `AGENTS.md`'s sbatch/SLURM gate.
 
 ## Requires (module load), confirmed 2026-09-19
 

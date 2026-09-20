@@ -281,16 +281,32 @@ with status `NOT_IMPLEMENTED` (exit code 2) — Gates 1-5 depend on Milestones
 
 ## Open blockers
 
-- No global WFDE5 data has been downloaded yet — Milestone 1's CDS request
-  structure is designed (`config/wfde5.yaml`) but untested against a real
-  global (not LIAISE-cropped) pull.
-- The ecLand executable, its exact global-run namelist requirements, and the
-  target CaMa-Flood map-package resolution have not been chosen.
 - `liaise-ecland`'s own reservoir/dam-module investigation (CaMa-Flood v4.20
   `LDAMOUT`) found a real, only partially understood numerical instability at
   fine time/space scales for run-of-river-type reservoirs — irrelevant to a
   first global naturalised (no-dam) pilot, but worth knowing before this repo
   ever turns dams on.
+- **ecLand's offline driver loads the ENTIRE declared forcing period into
+  memory upfront, not streamed** (found 2026-09-20, confirmed directly in
+  `/perm/pad/ecland/src/surf/offline/driver/sufcdf.F90`: `SUFCDF`, called
+  once at init, calls `RDFVAR` to read each forcing variable wholesale into
+  an array dimensioned `(NPOI, JPSTPFC)` -- active land points x the FULL
+  declared forcing length. `dtforc.F90`, called every timestep, only
+  interpolates within that already-resident array; it never re-reads from
+  disk mid-run). For this repo's real land-point count (87,798) this is
+  ~2 GB/month of forcing alone (8 variables), growing *linearly* with run
+  length -- a genuine hard wall for any multi-year run under the current
+  design, independent of grid resolution or CaMa-Flood coupling. Since
+  `dtforc.F90` only ever needs a small sliding window (current + next
+  forcing record) to interpolate, nothing on the consumption side actually
+  requires the whole series resident -- annual (or otherwise chunked) files
+  read incrementally would remove this ceiling entirely. This is a fix that
+  belongs in ecLand's own upstream source
+  (`sufcdf.F90`/`dtforc.F90`/`yomforc1s.F90`), not this repo -- worth
+  raising with the ecLand maintainers before attempting any multi-year
+  global run (see `README.md`'s "Pilot strategy": Test C, one full year, is
+  the current staged ceiling; anything longer needs this fixed first, or an
+  explicit decision to accept the memory cost).
 
 ## Immediate next step
 
