@@ -2,7 +2,11 @@
 #SBATCH --job-name=wfde5_cmf
 #SBATCH --nodes=1
 #SBATCH --ntasks=2
-#SBATCH --cpus-per-task=1
+# 8 threads measured as the sweet spot on the coupled global 0.5 deg
+# configuration: 3.09x faster than 1 thread, where 16 threads buys only
+# a further 12% for double the cores. Outputs are byte-identical across
+# 1/4/8/16 threads, so this is free speed, not a trade.
+#SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
 #SBATCH --time=01:00:00
 #SBATCH --qos=nf
@@ -68,6 +72,22 @@ export NFORCWINDOW=${NFORCWINDOW:-0}
 # in run_ecland.sh is the single-month January 1988 file; a year run must
 # point at the full-year file.
 [[ -n "${FORCING_SOURCE:-}" ]] && export FORCING_SOURCE
+
+# OpenMP threads per MPI rank. ECMWF's shell profile sets OMP_NUM_THREADS=1,
+# so without this every rank runs single-threaded no matter how many cores
+# the allocation holds -- confirmed inside job 39010675, which ran 2 ranks at
+# 1 thread each on a 256-core node. Must be paired with a matching
+# --cpus-per-task on the sbatch line; SLURM_CPUS_PER_TASK is the allocation's
+# own answer, so default to it rather than to 1.
+#
+# NOT a guaranteed win: this repo measured CaMa-Flood threading 1.6x SLOWER
+# at ~1,400 active river cells (glb_15min, our configuration) and only
+# faster at 34,000+ (glb_03min). Both ranks run the same executable, so this
+# applies to ecLand and CaMa alike. Measure before trusting a value.
+export OMP_NUM_THREADS=${OMP_NUM_THREADS:-${SLURM_CPUS_PER_TASK:-1}}
+export OMP_PLACES=${OMP_PLACES:-cores}
+export OMP_PROC_BIND=${OMP_PROC_BIND:-close}
+echo "== OMP_NUM_THREADS=${OMP_NUM_THREADS}  NPES=${NPES}  (cpus/task=${SLURM_CPUS_PER_TASK:-unset}) =="
 
 # sbatch CLI options override the #SBATCH directives above, so a long run is
 #   sbatch --time=18:00:00 --mem=48G ... run/run_ecland_cmf.slurm
