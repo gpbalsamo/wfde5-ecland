@@ -72,6 +72,12 @@ export NFORCWINDOW=${NFORCWINDOW:-0}
 # in run_ecland.sh is the single-month January 1988 file; a year run must
 # point at the full-year file.
 [[ -n "${FORCING_SOURCE:-}" ]] && export FORCING_SOURCE
+# Which CaMa-Flood weights directory to use. The only rank-dependent file
+# in it is mpireg.nc (diminfo.txt carries grid info only), so a different
+# MPI width means a directory whose mpireg.nc has that many regions.
+# Ready-made mpireg-<N>.nc for N=1..10,16,30 ship with the static network
+# data; they must match --ntasks exactly.
+[[ -n "${CMF_WEIGHTS_DIR:-}" ]] && export CMF_WEIGHTS_DIR
 
 # OpenMP threads per MPI rank. ECMWF's shell profile sets OMP_NUM_THREADS=1,
 # so without this every rank runs single-threaded no matter how many cores
