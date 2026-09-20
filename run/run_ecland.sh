@@ -40,6 +40,16 @@ START_DATE=${START_DATE:-1988-01-01T00:00:00}
 N_HOURS=${N_HOURS:-25}
 NPES=${NPES:-2}
 
+# Number of forcing records ecLand keeps resident at once. 0 (the default)
+# is the original behaviour: the whole NDFORC-length series is loaded into
+# GFOR(NPOI,NDFORC,12) at startup, which costs NPOI*NDFORC*12*8 bytes --
+# ~5.8 GB for a month at 0.5 deg, ~74 GB for a leap year, i.e. a year does
+# not fit. >0 caps that at NFORCWINDOW records and refills on demand.
+# Requires the NFORCWINDOW support in ecLand's offline driver (gpbalsamo/
+# ecland develop, commits 16549ed + 4b995b3); must be 0 or >= 8, and is
+# rejected at startup together with LOADIAB or LPREINT.
+NFORCWINDOW=${NFORCWINDOW:-0}
+
 if [[ "$RUN_CMF" == "true" ]]; then
     # NOT ecland-master-cmflood-dp -- confirmed via src/surf/cmflood.cmake
     # that binary is built from offline/cmfld1s.F90, a STANDALONE
@@ -108,8 +118,21 @@ python3 "${ECLAND_ROOT}/share/ecland/scripts/ecland_create_namelist.py" "${NAMEL
 
 RENDERED_NAMELIST="${WORKDIR}/namelist_${STA}"
 [[ -f "$RENDERED_NAMELIST" ]] || { echo "ERROR: namelist was not rendered: $RENDERED_NAMELIST" >&2; exit 1; }
+# ecland_create_namelist.py renders the template with a FIXED set of
+# format() keys, so NFORCWINDOW cannot be a {placeholder} in the template
+# without patching that script. Inject it into the rendered &NAMDIM here
+# instead, right after NDFORC, which keeps the templates usable with an
+# unmodified ecLand and keeps NFORCWINDOW=0 byte-identical to before.
+if [[ "$NFORCWINDOW" -gt 0 ]]; then
+    grep -q '^\s*NDFORC=' "$RENDERED_NAMELIST" || {
+        echo "ERROR: no NDFORC line in $RENDERED_NAMELIST to anchor NFORCWINDOW to" >&2; exit 1; }
+    sed -i "0,/^\(\s*\)NDFORC=.*$/s//&\n    NFORCWINDOW=${NFORCWINDOW}/" "$RENDERED_NAMELIST"
+    grep -q "NFORCWINDOW=${NFORCWINDOW}" "$RENDERED_NAMELIST" || {
+        echo "ERROR: failed to inject NFORCWINDOW into $RENDERED_NAMELIST" >&2; exit 1; }
+fi
+
 echo "Rendered: $RENDERED_NAMELIST"
-grep -E "NSTOP|NLAT|NLON|NINDAT|NDFORC|LECMF1WAY" "$RENDERED_NAMELIST" || true
+grep -E "NSTOP|NLAT|NLON|NINDAT|NDFORC|NFORCWINDOW|LECMF1WAY" "$RENDERED_NAMELIST" || true
 
 RUN_MODEL_ARGS=(-s "$STA" -b "$ECLAND_EXE" -w "${WORKDIR}/run" -o "$OUTPUT_DIR"
                 -f "$FORCING_DIR" -i "$CLIM_DIR" -F 2D -n "$RENDERED_NAMELIST")

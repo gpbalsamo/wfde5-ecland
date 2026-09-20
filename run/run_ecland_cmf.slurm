@@ -39,4 +39,18 @@ export STA=${STA:-GLOBALCMF_19880101-19880131}
 export START_DATE=${START_DATE:-1988-01-01T00:00:00}
 export N_HOURS=${N_HOURS:-744}
 
+# Passed through so a longer run can bound ecLand's resident forcing array
+# instead of scaling it with N_HOURS -- GFOR is NPOI*NDFORC*12*8 bytes, so a
+# leap year at 0.5 deg would need ~74 GB without this. 0 = off (default).
+# See run_ecland.sh's own comment for the ecLand-side requirements.
+export NFORCWINDOW=${NFORCWINDOW:-0}
+# Which assembled WFDE5 file to slice the run's forcing out of. The default
+# in run_ecland.sh is the single-month January 1988 file; a year run must
+# point at the full-year file.
+[[ -n "${FORCING_SOURCE:-}" ]] && export FORCING_SOURCE
+
+# sbatch CLI options override the #SBATCH directives above, so a long run is
+#   sbatch --time=18:00:00 --mem=48G ... run/run_ecland_cmf.slurm
+# rather than a second copy of this script.
+
 "${REPO_ROOT}/run/run_ecland.sh"
