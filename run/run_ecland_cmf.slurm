@@ -31,6 +31,26 @@ set -euo pipefail
 # $SLURM_SUBMIT_DIR is the directory `sbatch` was invoked FROM.
 REPO_ROOT=${SLURM_SUBMIT_DIR:?SLURM_SUBMIT_DIR not set -- run via sbatch, not directly}
 
+# Settings come from a file passed as $1, NOT from the submitting shell's
+# environment. ECMWF's sbatch wrapper injects its own
+# `--export=EC_user_time_limit=...`, which REPLACES the default
+# `--export=ALL`, so exported variables do NOT reach the job -- the script
+# silently falls back to every default instead. Confirmed 2026-09-20: a run
+# submitted with N_HOURS=8784 in the environment logged "Preparing WFDE5
+# forcing slice (744h ...)" and began re-running January. Script arguments
+# are unaffected by --export, so a sourced config file is the reliable
+# channel.
+#
+#   sbatch run/run_ecland_cmf.slurm run/configs/year_1988.env
+#
+if [[ $# -ge 1 ]]; then
+    CONFIG_FILE="$1"
+    [[ -r "$CONFIG_FILE" ]] || { echo "ERROR: config file not readable: $CONFIG_FILE" >&2; exit 1; }
+    echo "== Sourcing config: ${CONFIG_FILE} =="
+    # shellcheck disable=SC1090
+    source "$CONFIG_FILE"
+fi
+
 module load prgenv/intel intel/2021.4 hpcx-openmpi/2.9.0
 
 export RUN_CMF=true
