@@ -50,6 +50,14 @@ NPES=${NPES:-2}
 # rejected at startup together with LOADIAB or LPREINT.
 NFORCWINDOW=${NFORCWINDOW:-0}
 
+# ecLand output interval in HOURS. ecland_create_namelist.py hardcodes
+# nfreq_post = max(1, 3600/tstep), i.e. hourly output of o_gg/o_efl/o_wat --
+# ~670 GB and 8784 records per simulated year at 0.5 deg. CaMa-Flood's own
+# output is already daily (IFRQ_OUT=24), so hourly ecLand output is finer
+# than the coupled chain's own routing output. 0 = leave the rendered value
+# alone (default, unchanged behaviour); >0 sets NFRPOS accordingly.
+OUTPUT_FREQ_HOURS=${OUTPUT_FREQ_HOURS:-0}
+
 if [[ "$RUN_CMF" == "true" ]]; then
     # NOT ecland-master-cmflood-dp -- confirmed via src/surf/cmflood.cmake
     # that binary is built from offline/cmfld1s.F90, a STANDALONE
@@ -129,6 +137,17 @@ if [[ "$NFORCWINDOW" -gt 0 ]]; then
     sed -i "0,/^\(\s*\)NDFORC=.*$/s//&\n    NFORCWINDOW=${NFORCWINDOW}/" "$RENDERED_NAMELIST"
     grep -q "NFORCWINDOW=${NFORCWINDOW}" "$RENDERED_NAMELIST" || {
         echo "ERROR: failed to inject NFORCWINDOW into $RENDERED_NAMELIST" >&2; exit 1; }
+fi
+
+# Override the hardcoded hourly post-processing frequency if asked.
+if [[ "$OUTPUT_FREQ_HOURS" -gt 0 ]]; then
+    _tstep=$(grep -oE "TSTEP=[0-9]+" "$RENDERED_NAMELIST" | head -1 | cut -d= -f2)
+    [[ -n "$_tstep" ]] || { echo "ERROR: no TSTEP in $RENDERED_NAMELIST" >&2; exit 1; }
+    _nfrpos=$(( OUTPUT_FREQ_HOURS * 3600 / _tstep ))
+    [[ "$_nfrpos" -ge 1 ]] || { echo "ERROR: OUTPUT_FREQ_HOURS=$OUTPUT_FREQ_HOURS < TSTEP=${_tstep}s" >&2; exit 1; }
+    sed -i "s/^\(\s*\)NFRPOS=[0-9]*/\1NFRPOS=${_nfrpos}/" "$RENDERED_NAMELIST"
+    grep -qE "^\s*NFRPOS=${_nfrpos}\b" "$RENDERED_NAMELIST" || { echo "ERROR: failed to set NFRPOS" >&2; exit 1; }
+    echo "== output every ${OUTPUT_FREQ_HOURS}h (NFRPOS=${_nfrpos}, TSTEP=${_tstep}s) =="
 fi
 
 echo "Rendered: $RENDERED_NAMELIST"

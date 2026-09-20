@@ -78,6 +78,7 @@ export NFORCWINDOW=${NFORCWINDOW:-0}
 # Ready-made mpireg-<N>.nc for N=1..10,16,30 ship with the static network
 # data; they must match --ntasks exactly.
 [[ -n "${CMF_WEIGHTS_DIR:-}" ]] && export CMF_WEIGHTS_DIR
+export OUTPUT_FREQ_HOURS=${OUTPUT_FREQ_HOURS:-0}
 
 # OpenMP threads per MPI rank. ECMWF's shell profile sets OMP_NUM_THREADS=1,
 # so without this every rank runs single-threaded no matter how many cores
