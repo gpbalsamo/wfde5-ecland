@@ -58,6 +58,10 @@ NFORCWINDOW=${NFORCWINDOW:-0}
 # alone (default, unchanged behaviour); >0 sets NFRPOS accordingly.
 OUTPUT_FREQ_HOURS=${OUTPUT_FREQ_HOURS:-0}
 
+# OpenMP/vector block length. Default 40 (sudim1s.F90). Exposed only to
+# test whether results depend on blocking -- they must not.
+ECLAND_NPROMA=${ECLAND_NPROMA:-0}
+
 if [[ "$RUN_CMF" == "true" ]]; then
     # NOT ecland-master-cmflood-dp -- confirmed via src/surf/cmflood.cmake
     # that binary is built from offline/cmfld1s.F90, a STANDALONE
@@ -81,6 +85,33 @@ fi
 FORCING_SOURCE=${FORCING_SOURCE:-${REPO_ROOT}/forcing/WFDE5_CRU_GPCC/WFDE5_CRU_GPCC_1988_01-01.nc}
 SURFCLIM_SOURCE=${SURFCLIM_SOURCE:-${REPO_ROOT}/init_clim/work/output/wfde5-ecland/surfclim_GLOBAL_1988-2024.nc}
 SOILINIT_SOURCE=${SOILINIT_SOURCE:-${REPO_ROOT}/init_clim/work/output/wfde5-ecland/surfinit_GLOBAL_1988-2024.nc}
+
+# Multi-year restart chaining. Point RESTART_FROM at the PREVIOUS year's
+# restartout.nc and it is staged AS soilinit -- that is the whole mechanism,
+# and it is not obvious.
+#
+# The naive alternative (stage a restart separately and set LNF=.FALSE.) does
+# NOTHING: the offline driver only calls RDRES when NSTART != 0, and the
+# per-year namelist always has NSTART=0, so the run silently COLD-STARTS with
+# no error and exit code 0. Confirmed in liaise-ecland, which is where this
+# convention comes from: link the previous restartout.nc as soilinit, keep
+# NSTART=0, and leave LNF at whatever the template says (.TRUE. -- do not
+# patch it). Because the failure mode is silent, VERIFY_RESTART below checks
+# the state was actually carried rather than trusting the exit code.
+RESTART_FROM=${RESTART_FROM:-}
+CLIM_SOILINIT="$SOILINIT_SOURCE"   # cold-start reference for the check below
+if [[ -n "$RESTART_FROM" ]]; then
+    [[ -f "$RESTART_FROM" ]] || { echo "ERROR: RESTART_FROM not found: $RESTART_FROM" >&2; exit 1; }
+    SOILINIT_SOURCE="$RESTART_FROM"
+    echo "== Restart chaining: soilinit <- ${RESTART_FROM} =="
+fi
+VERIFY_RESTART=${VERIFY_RESTART:-true}
+
+# ECFS archive target, e.g. ec:/pad/wfde5-ecland. When set, the run's output
+# is copied there after a successful run and verified with els before the
+# local copy is considered expendable. PERM is quota-limited (10 T, 5.82 T
+# already used), so a 37-year campaign has to move output off disk as it goes.
+ECFS_DIR=${ECFS_DIR:-}
 
 WORKDIR=${WORKDIR:-${REPO_ROOT}/run/work}
 OUTPUT_DIR=${OUTPUT_DIR:-${REPO_ROOT}/run/output}
@@ -148,6 +179,16 @@ if [[ "$OUTPUT_FREQ_HOURS" -gt 0 ]]; then
     sed -i "s/^\(\s*\)NFRPOS=[0-9]*/\1NFRPOS=${_nfrpos}/" "$RENDERED_NAMELIST"
     grep -qE "^\s*NFRPOS=${_nfrpos}\b" "$RENDERED_NAMELIST" || { echo "ERROR: failed to set NFRPOS" >&2; exit 1; }
     echo "== output every ${OUTPUT_FREQ_HOURS}h (NFRPOS=${_nfrpos}, TSTEP=${_tstep}s) =="
+fi
+
+if [[ "$ECLAND_NPROMA" -gt 0 ]]; then
+    if grep -qE "^\s*NPROMA=" "$RENDERED_NAMELIST"; then
+        sed -i "s/^\(\s*\)NPROMA=[0-9]*/\1NPROMA=${ECLAND_NPROMA}/" "$RENDERED_NAMELIST"
+    else
+        sed -i "0,/^\(\s*\)NDFORC=.*$/s//&\n    NPROMA=${ECLAND_NPROMA}/" "$RENDERED_NAMELIST"
+    fi
+    grep -qE "^\s*NPROMA=${ECLAND_NPROMA}\b" "$RENDERED_NAMELIST" || { echo "ERROR: failed to set NPROMA" >&2; exit 1; }
+    echo "== NPROMA=${ECLAND_NPROMA} =="
 fi
 
 echo "Rendered: $RENDERED_NAMELIST"
@@ -226,3 +267,60 @@ if [[ "$RUN_CMF" == "true" ]]; then
     # run fails (that script's own `rm -rf ${RDIR}` cleanup only runs on
     # success/after a completed loop).
 fi
+
+# --- verify the restart state was actually carried -------------------------
+# A silent cold start is the documented failure mode, so this must compare
+# the MODEL'S OWN first output against the staged restart -- not the staged
+# file against its source, which is a copy of it and therefore tautological.
+# Discriminating power is large: measured on a 2-day chain test,
+#   |prev_restart - first_output| = 3.3e-06   (genuine continuation)
+#   |climatology  - first_output| = 176.1     (what a cold start gives)
+if [[ -n "$RESTART_FROM" && "$VERIFY_RESTART" == "true" ]]; then
+    echo "== Verifying restart continuity =="
+    python3 - "$RESTART_FROM" "${RUN_OUTPUT_DIR}/o_gg.nc" "$CLIM_SOILINIT" <<'PYEOF'
+import sys, numpy as np
+from netCDF4 import Dataset
+prev, out, clim = sys.argv[1], sys.argv[2], sys.argv[3]
+A, B = Dataset(prev), Dataset(out)
+C = Dataset(clim) if clim and clim != prev else None
+var = next((v for v in ("SoilMoist","SoilTemp","AvgSurfT")
+            if v in A.variables and v in B.variables), None)
+if var is None:
+    sys.exit("ERROR: no comparable prognostic in restart and o_gg")
+a = np.ma.filled(A[var][:], np.nan).astype("f8")
+b = B[var][0] if B[var].ndim > a.ndim else B[var][:]
+b = np.ma.filled(b, np.nan).astype("f8")
+if a.shape != b.shape:
+    sys.exit(f"ERROR: {var} shape {a.shape} vs first output {b.shape}")
+d_chain = np.nanmean(np.abs(a - b))
+msg = f"  {var}: |prev_restart - first_output| = {d_chain:.4g}"
+if C is not None and var in C.variables:
+    c = np.ma.filled(C[var][:], np.nan).astype("f8")
+    if c.shape == a.shape:
+        d_cold = np.nanmean(np.abs(c - b))
+        msg += f" ; |climatology - first_output| = {d_cold:.4g}"
+        print(msg)
+        if not d_chain < 0.01 * d_cold:
+            sys.exit("ERROR: first output is no closer to the staged restart than to "
+                     "climatology -- the run almost certainly COLD-STARTED")
+        print("  OK: state was carried from the previous segment")
+        sys.exit(0)
+print(msg)
+print("  WARNING: no climatology reference available; continuity not proven")
+PYEOF
+fi
+
+# --- archive to ECFS -------------------------------------------------------
+if [[ -n "$ECFS_DIR" ]]; then
+    echo "== Archiving to ECFS: ${ECFS_DIR}/${STA} =="
+    emkdir -p "${ECFS_DIR}/${STA}" 2>/dev/null || true
+    for f in "${RUN_OUTPUT_DIR}"/*; do
+        [[ -f "$f" ]] || continue
+        b=$(basename "$f")
+        ecp -o "$f" "${ECFS_DIR}/${STA}/${b}" || { echo "ERROR: ecp failed for $b" >&2; exit 1; }
+    done
+    echo "== Verifying ECFS copy =="
+    els -l "${ECFS_DIR}/${STA}/" || { echo "ERROR: els failed" >&2; exit 1; }
+    echo "Archived. Local copy at ${RUN_OUTPUT_DIR} may now be removed."
+fi
+

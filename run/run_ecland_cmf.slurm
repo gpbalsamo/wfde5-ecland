@@ -79,6 +79,12 @@ export NFORCWINDOW=${NFORCWINDOW:-0}
 # data; they must match --ntasks exactly.
 [[ -n "${CMF_WEIGHTS_DIR:-}" ]] && export CMF_WEIGHTS_DIR
 export OUTPUT_FREQ_HOURS=${OUTPUT_FREQ_HOURS:-0}
+export ECLAND_NPROMA=${ECLAND_NPROMA:-0}
+# Multi-year chaining + archive; see run_ecland.sh for why RESTART_FROM is
+# staged AS soilinit and why the result is verified rather than trusted.
+[[ -n "${RESTART_FROM:-}" ]] && export RESTART_FROM
+[[ -n "${ECFS_DIR:-}" ]] && export ECFS_DIR
+export VERIFY_RESTART=${VERIFY_RESTART:-true}
 
 # OpenMP threads per MPI rank. ECMWF's shell profile sets OMP_NUM_THREADS=1,
 # so without this every rank runs single-threaded no matter how many cores
