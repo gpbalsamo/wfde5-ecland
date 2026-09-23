@@ -34,6 +34,41 @@ those directly rather than reimplementing namelist patching.
   8 GiB cap allows regardless of run length -- submitted only after
   explicit user approval, per `AGENTS.md`'s sbatch/SLURM gate.
 
+## Chunking rule: annual → daily, hourly → monthly
+
+**Output file size scales with records per file = `N_HOURS / OUTPUT_FREQ_HOURS`.**
+Measured on this system, global 0.5°, coupled:
+
+| segment | output  | records | `o_gg.nc` | outcome |
+|---------|---------|---------|-----------|---------|
+| 1 year  | daily   |   366   |   18 GB   | completes (0.70 h) |
+| 1 month | hourly  |   744   |   36 GB   | completes |
+| 1 year  | hourly  |  8784   |  424 GB   | **SIGBUS on the final write** |
+
+So: **annual chunks must use daily output; hourly output must use monthly
+chunks.**
+
+This is enforced, not just documented. `run_ecland.sh` refuses more than
+`MAX_OUTPUT_RECORDS` (750) records per file — the ceiling is the largest
+configuration actually proven to work here, not a guess at where it really
+breaks. `run/submit_campaign.py --mode {annual,monthly}` sets it correctly and
+refuses `--output-freq-hours 1 --mode annual` outright.
+
+The 424 GB failure is a large-file **write** fault, not disk or quota: those
+files are sparse, actual usage was 171 GB against 4.2 T free PERM. The limit
+is bracketed but **not characterised** — `ALLOW_LARGE_OUTPUT=true` exists to
+override the guard if someone wants to pin it down, and is not for production.
+
+```bash
+# annual + daily (the campaign default)
+python3 run/submit_campaign.py --start-year 1989 --end-year 2024 \
+    --restart-from run/output/Y1988_19880101-19890101/restartout.nc
+
+# hourly output for one year -> 12 monthly segments
+python3 run/submit_campaign.py --start-year 1995 --end-year 1995 \
+    --mode monthly --output-freq-hours 1
+```
+
 ## Requires (module load), confirmed 2026-09-19
 
 `ecland-master-dp` is MPI-linked (HPC-X OpenMPI). Before running:

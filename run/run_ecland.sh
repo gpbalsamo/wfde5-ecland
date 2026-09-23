@@ -58,6 +58,52 @@ NFORCWINDOW=${NFORCWINDOW:-0}
 # alone (default, unchanged behaviour); >0 sets NFRPOS accordingly.
 OUTPUT_FREQ_HOURS=${OUTPUT_FREQ_HOURS:-0}
 
+# ===========================================================================
+#  SEGMENT LENGTH vs OUTPUT FREQUENCY -- a hard, measured constraint
+# ===========================================================================
+#  Output file size scales with the number of RECORDS written to it, i.e.
+#  N_HOURS / OUTPUT_FREQ_HOURS. Measured on this system, global 0.5 deg:
+#
+#     segment   output    records   o_gg.nc    outcome
+#     -------   ------    -------   -------    -----------------------------
+#     1 year    daily         366     18 GB    completes  (0.70 h)
+#     1 month   hourly        744     36 GB    completes
+#     1 year    hourly       8784    424 GB    SIGBUS on the final write
+#
+#  So:  ANNUAL chunks -> DAILY output.   HOURLY output -> MONTHLY chunks.
+#
+#  The 424 GB failure is a large-file WRITE fault, not disk or quota: those
+#  files are sparse, actual usage was 171 GB against 4.2 T free. The limit is
+#  bracketed but not characterised, so this refuses anything beyond the
+#  largest size actually proven to work here rather than guessing where it
+#  really breaks. Set ALLOW_LARGE_OUTPUT=true to override deliberately (e.g.
+#  to characterise the limit) -- it is not a knob for production runs.
+# ===========================================================================
+MAX_OUTPUT_RECORDS=${MAX_OUTPUT_RECORDS:-750}
+ALLOW_LARGE_OUTPUT=${ALLOW_LARGE_OUTPUT:-false}
+_ofreq=${OUTPUT_FREQ_HOURS:-0}; [[ "$_ofreq" -gt 0 ]] || _ofreq=1   # 0 = template default = hourly
+_records=$(( N_HOURS / _ofreq ))
+if [[ "$_records" -gt "$MAX_OUTPUT_RECORDS" && "$ALLOW_LARGE_OUTPUT" != "true" ]]; then
+    cat >&2 <<MSG
+ERROR: this run would write ${_records} records per output file
+       (N_HOURS=${N_HOURS} / OUTPUT_FREQ_HOURS=${_ofreq}), above the
+       ${MAX_OUTPUT_RECORDS}-record ceiling proven safe on this system.
+
+       Largest configuration known to complete here: 744 records (one month
+       of hourly output, o_gg.nc 36 GB). A full year of hourly output (8784
+       records, 424 GB) dies with SIGBUS on the final write.
+
+       Use one of:
+         annual  chunk + daily  output : N_HOURS=8784 OUTPUT_FREQ_HOURS=24
+         monthly chunk + hourly output : N_HOURS=744  OUTPUT_FREQ_HOURS=1
+
+       run/submit_campaign.py --mode {annual,monthly} sets this correctly.
+       ALLOW_LARGE_OUTPUT=true overrides, for characterising the limit only.
+MSG
+    exit 1
+fi
+echo "== output: ${_records} records/file (ceiling ${MAX_OUTPUT_RECORDS}) =="
+
 # OpenMP/vector block length. Default 40 (sudim1s.F90). Exposed only to
 # test whether results depend on blocking -- they must not.
 ECLAND_NPROMA=${ECLAND_NPROMA:-0}
