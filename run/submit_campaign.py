@@ -54,6 +54,8 @@ def main():
     ap.add_argument("--threads", type=int, default=8)
     ap.add_argument("--time", default="06:00:00")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--after", default="",
+                    help="SLURM job id the first segment waits on (afterok)")
     a = ap.parse_args()
 
     if a.output_freq_hours < 24 and a.mode != "monthly":
@@ -91,8 +93,9 @@ def main():
         cmd = ["sbatch", "--parsable", f"--time={a.time}", "--mem=64G",
                f"--ntasks={a.ranks}", f"--cpus-per-task={a.threads}",
                f"--job-name={tag}"]
-        if dep:
-            cmd.append(f"--dependency=afterok:{dep}")
+        _d = dep or (a.after if not jobs else "")
+        if _d:
+            cmd.append(f"--dependency=afterok:{_d}")
         cmd += ["run/run_ecland_cmf.slurm", str(cfg.relative_to(repo))]
         if a.dry_run:
             print(f"  {tag:10s} {nhours:>5}h  restart_from={'(cold)' if not prev_restart else Path(prev_restart).parent.name}")
