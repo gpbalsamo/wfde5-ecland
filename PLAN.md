@@ -196,11 +196,22 @@ the reasoning trail)**:
       enforced in `run/run_ecland.sh`: annual chunks -> daily output,
       hourly output -> monthly chunks. The limit is bracketed between 36 GB
       (works) and 424 GB (fails) but **not characterised**.
-- [ ] Verify energy budget — **NOT STARTED** (equation carried from
-      `liaise-ecland`'s verified convention, see `docs/forcing_variables.md`;
-      the *global, area-weighted* aggregation code does not exist yet).
-      `run/check_run.py` is a NaN/crash check, not a budget-closure check.
-- [ ] Verify water budget — **NOT STARTED**, same caveat.
+- [x] Verify energy budget — **DONE** 2026-09-24, `validation/check_budgets.py`,
+      area-weighted global land totals. On the validated 1988 year:
+      residual **+2347 EJ = 0.680% of net radiation**, **PASS**.
+      Terms: SWnet 660354, LWnet -315357, Qle -201593, Qh -140360 EJ.
+      Fluxes are downward-positive (`SurfSgn_convention = "Mathematical"`),
+      so the turbulent terms are ADDED, not subtracted — subtracting them
+      doubles the imbalance, the energy-side twin of the Qs/Qsb trap.
+- [x] Verify water budget — **DONE** 2026-09-24, same script. On 1988:
+      residual **-525 Gt = 0.452% of precipitation**, **PASS**.
+      Terms: precipitation 116090 Gt, evaporation -80302 Gt, runoff
+      (Qs+Qsb) -42410 Gt, DelSoilMoist -3429 Gt — all independently
+      credible against global land hydrology, which matters as much as the
+      residual closing. `Del*` terms are `kg m-2`/`J m-2` (already
+      integrated), NOT rates; the script scales by the units attribute, not
+      the variable name.
+      `run/check_run.py` remains a NaN/crash check only; these are separate.
 - [ ] Quantify global runoff totals — **NOT STARTED**.
 
 **A real bug was found and fixed getting here (2026-09-19)**: WFDE5 is a
