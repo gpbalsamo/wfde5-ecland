@@ -62,10 +62,20 @@ local coding agent, separate from the scientific milestones (0-7).
       **does not exist** — units/timestamp-semantics/fill-value checks are
       not yet automated, and nothing here should be trusted as a real gate
       until that script exists and is run.
-- [ ] Create ecLand-ready files — **NOT STARTED** (`forcing/preprocess_wfde5.py`,
-      near-unchanged port of `prepare_liaise_forcing_ecland.py`, not yet
-      written).
-- [ ] Verify global coverage — **NOT STARTED**.
+- [x] Create ecLand-ready files — **DONE** 2026-09-20: `forcing/preprocess_wfde5.py`
+      converts WFDE5 to ecLand `met_2DHT` format and has produced the real
+      files driving every run below. Rewritten to stream in 168-hour blocks
+      after the whole-period load was measured at ~82 GB peak for one year
+      (unrunnable); peak RSS is now 546 MB and the output was verified
+      **bit-identical** to the pre-rewrite file on the one-day case.
+- [x] Verify global coverage — **DONE** 2026-09-22 for the assembled year
+      files, by inspection not by script: 8784 records for 1988 (leap) /
+      8760 otherwise, grid 360x720, lat -89.75..89.75 **ascending**, lon
+      -179.75..179.75, strictly hourly with no gaps, units K / kg kg-1 / Pa /
+      W m-2 / kg m-2 s-1 / m s-1, and an identical 64.2% ocean mask across
+      all eight variables. `forcing/validate_wfde5.py` **still does not
+      exist**, so this is a manual check that is not reproducible or
+      version-controlled — writing that script remains open.
 
 ## Milestone 2 — ecLand climatology + initialization
 
@@ -168,8 +178,24 @@ the reasoning trail)**:
       cells). 87,798 land points; `AvgSurfT` 197.5-325.4 K, `SoilTemp`
       215.9-316.1 K on land -- physically plausible for a global January
       day, not independently validated against observations.
-- [ ] One month, global — **NOT STARTED**.
-- [ ] One complete year, global — **NOT STARTED**.
+- [x] One month, global — **DONE** 2026-09-20: full month of January 1988,
+      coupled ecLand<->CaMa-Flood over real MPI, hourly coupling
+      (`TCOUPFREQ=1`). `run/check_run.py` **PASS** over ~60 GB of output.
+- [x] One complete year, global — **DONE** 2026-09-23 (`Y1988_19880101-19890101`,
+      job 30129241). Full leap year, 8784 hourly forcing records, 17,566
+      steps, coupled, 16 ranks x 8 threads. Model integration 2505 s
+      (**0.70 h/simulated year**; 0.93 h including preprocessing and ECFS
+      archiving), 12 `NFORCWINDOW` refills, 7.4 GB on disk, archived to
+      `ec:/pad/wfde5-ecland` and verified with `els`.
+      `run/check_run.py` **PASS** — `run.log` clean, `restartout.nc`
+      present, no NaN/Inf in any `o_*.nc`.
+      A first attempt (job 30010675) completed all 17,566 steps then died
+      with **SIGBUS on the final write** of a 424 GB hourly `o_gg.nc`. That
+      is a large-file write fault, **not** disk or quota (files are sparse;
+      171 GB actual against 4.2 T free). Hence the chunking rule now
+      enforced in `run/run_ecland.sh`: annual chunks -> daily output,
+      hourly output -> monthly chunks. The limit is bracketed between 36 GB
+      (works) and 424 GB (fails) but **not characterised**.
 - [ ] Verify energy budget — **NOT STARTED** (equation carried from
       `liaise-ecland`'s verified convention, see `docs/forcing_variables.md`;
       the *global, area-weighted* aggregation code does not exist yet).
