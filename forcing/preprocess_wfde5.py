@@ -100,13 +100,23 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--n-hours", required=True, type=int,
         help="Number of consecutive hourly records to write, starting at --start-date.",
     )
+    parser.add_argument("--next-input", type=Path, default=None,
+                        help="following year's WFDE5 file; lets the slice run past the end "
+                             "of --input so a segment can cover a FULL calendar year")
     parser.add_argument("--overwrite", action="store_true")
     return parser.parse_args(argv)
 
 
 def find_start_index(time_values: np.ndarray, units: str, calendar: str, start_date: datetime) -> int:
     target = date2num(start_date, units=units, calendar=calendar)
-    matches = np.where(np.isclose(time_values, target, atol=1e-6))[0]
+    # rtol=0 is essential. np.isclose defaults to rtol=1e-5, and this axis is
+    # "hours since 1900-01-01", so values are ~8e5 and the implied tolerance
+    # is ~8 HOURS -- fifteen records match a single timestamp and matches[0]
+    # silently returns one 7 h early. Runs that start at the file's first
+    # record were unaffected (matches[0] is then correctly 0), which is why
+    # this never showed up; any slice starting mid-file -- every segment of a
+    # monthly-chunked campaign -- would have been offset.
+    matches = np.where(np.isclose(time_values, target, rtol=0.0, atol=1e-6))[0]
     if matches.size == 0:
         dates = num2date(time_values[[0, -1]], units=units, calendar=calendar)
         raise ValueError(
@@ -115,10 +125,29 @@ def find_start_index(time_values: np.ndarray, units: str, calendar: str, start_d
             "ecland_create_namelist.py hardcodes a midnight start for 2D forcing, "
             "so this must be an exact, real timestamp, not an approximation."
         )
-    return int(matches[0])
+    if matches.size > 1:
+        raise ValueError(
+            f"--start-date {start_date} matched {matches.size} records -- the time axis "
+            "is not strictly increasing, or the tolerance is wrong")
+    idx = int(matches[0])
+    got = num2date(time_values[idx], units=units, calendar=calendar)
+    if abs((got - start_date).total_seconds()) > 1.0:
+        raise ValueError(f"--start-date {start_date} resolved to {got} (index {idx})")
+    return idx
 
 
-def convert(input_path: Path, output_path: Path, start_date: datetime, n_hours: int, overwrite: bool) -> None:
+def convert(input_path: Path, output_path: Path, start_date: datetime, n_hours: int,
+            overwrite: bool, next_input: Path = None) -> None:
+    """Write n_hours of ecLand forcing starting at start_date.
+
+    next_input lets the slice run past the end of input_path and take the
+    remainder from the following year's file. That is what allows a segment to
+    integrate a FULL calendar year: to reach 00:00 on 1 Jan of Y+1 the model
+    needs a forcing record AT that instant, i.e. 8761 records for a 8760-hour
+    year. Without it ecland_create_namelist.py's
+    nstop = nforcing*(forcing_step/tstep) - 2 stops an hour short, the final
+    daily write never happens, and 31 Dec is missing from every year.
+    """
     with Dataset(input_path) as src:
         missing = [v for v in REQUIRED_SOURCE_VARS if v not in src.variables]
         if missing:
@@ -131,11 +160,16 @@ def convert(input_path: Path, output_path: Path, start_date: datetime, n_hours: 
 
         start_idx = find_start_index(time_values, units, calendar, start_date)
         end_idx = start_idx + n_hours
+        spill = 0
         if end_idx > time_values.size:
-            raise ValueError(
-                f"{input_path}: requested {n_hours} hours from index {start_idx}, "
-                f"but only {time_values.size - start_idx} are available"
-            )
+            spill = end_idx - time_values.size
+            if next_input is None:
+                raise ValueError(
+                    f"{input_path}: requested {n_hours} hours from index {start_idx}, "
+                    f"but only {time_values.size - start_idx} are available "
+                    f"(pass --next-input to continue into the following file)"
+                )
+            end_idx = time_values.size
 
         # Confirm every requested record really is hourly and contiguous --
         # a silent gap here would desync the model from real time.
@@ -157,6 +191,21 @@ def convert(input_path: Path, output_path: Path, start_date: datetime, n_hours: 
             raise FileExistsError(f"{output_path} exists (use --overwrite)")
         output_path.unlink()
     output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if spill:
+        with Dataset(next_input) as nxt:
+            nt = nxt.variables["time"]
+            nxt_first = num2date(np.asarray(nt[:spill], dtype=np.float64), units=nt.units,
+                                 calendar=getattr(nt, "calendar", "standard"),
+                                 only_use_cftime_datetimes=True)
+            last = num2date(time_values[end_idx - 1], units=units, calendar=calendar,
+                            only_use_cftime_datetimes=True)
+            gap = (nxt_first[0] - last).total_seconds()
+            if abs(gap - 3600.0) > 1e-6:
+                raise ValueError(
+                    f"{next_input}: first record is {gap/3600:.3f} h after the last record of "
+                    f"{input_path}, expected exactly 1 h -- the two files are not contiguous")
+        print(f"  spanning into {Path(next_input).name} for {spill} record(s)")
 
     out_time_units = f"seconds since {start_date.strftime('%Y-%m-%d %H:%M:%S')}"
     out_time_values = np.arange(n_hours, dtype=np.float64) * 3600.0
@@ -217,9 +266,13 @@ def convert(input_path: Path, output_path: Path, start_date: datetime, n_hours: 
         # zeros_like for Wind_N needed ~82 GB, which no interactive session
         # (8 GiB cgroup here) survives. Blocking bounds peak memory at
         # TIME_BLOCK_HOURS regardless of how long the run is.
+        # Iterate over what THIS file actually holds (end_idx-start_idx), not
+        # n_hours: when the slice spills into the next year's file the last
+        # block would otherwise ask for records the source does not have.
+        n_main = end_idx - start_idx
         with Dataset(input_path) as src:
-            for blk_start in range(0, n_hours, TIME_BLOCK_HOURS):
-                blk_end = min(blk_start + TIME_BLOCK_HOURS, n_hours)
+            for blk_start in range(0, n_main, TIME_BLOCK_HOURS):
+                blk_end = min(blk_start + TIME_BLOCK_HOURS, n_main)
                 s0, s1 = start_idx + blk_start, start_idx + blk_end
                 for src_name, var in out_vars.items():
                     var[blk_start:blk_end] = np.ma.filled(
@@ -236,8 +289,21 @@ def convert(input_path: Path, output_path: Path, start_date: datetime, n_hours: 
                 wind_n[blk_start:blk_end] = np.zeros_like(wind_block)
                 print(
                     f"  wrote hours {blk_start}-{blk_end} of {n_hours} "
-                    f"({100.0 * blk_end / n_hours:.0f}%)"
+                    f"({100.0 * blk_end / n_main:.0f}% of this file)"
                 )
+
+        if spill:
+            base = end_idx - start_idx
+            with Dataset(next_input) as nxt:
+                for src_name, var in out_vars.items():
+                    var[base:base + spill] = np.ma.filled(
+                        nxt.variables[src_name][:spill], MASKED_FILL_VALUES[src_name]
+                    ).astype(np.float32)
+                wb = np.ma.filled(nxt.variables["Wind"][:spill],
+                                  MASKED_FILL_VALUES["Wind"]).astype(np.float32)
+            wind_e[base:base + spill] = wb
+            wind_n[base:base + spill] = np.zeros_like(wb)
+            print(f"  wrote {spill} spill record(s) from the next file")
 
         dst.Conventions = "CF-1.6"
         dst.source = str(input_path)
@@ -256,7 +322,7 @@ def convert(input_path: Path, output_path: Path, start_date: datetime, n_hours: 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     start_date = datetime.fromisoformat(args.start_date)
-    convert(args.input, args.output, start_date, args.n_hours, args.overwrite)
+    convert(args.input, args.output, start_date, args.n_hours, args.overwrite, args.next_input)
     return 0
 
 

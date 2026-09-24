@@ -192,11 +192,29 @@ echo "== Staging surfclim/soilinit =="
 cp -f "$SURFCLIM_SOURCE" "${CLIM_DIR}/surfclim_${STA}.nc"
 cp -f "$SOILINIT_SOURCE" "${CLIM_DIR}/surfinit_${STA}.nc"
 
-echo "== Preparing WFDE5 forcing slice (${N_HOURS}h from ${START_DATE}) =="
+# N_HOURS is the INTEGRATION length. ecland_create_namelist.py sets
+# nstop = nforcing*(forcing_step/tstep) - 2, i.e. it stops one forcing
+# interval short of the last record, so integrating a full N_HOURS needs
+# N_HOURS+1 forcing records. Without the extra record a "one year" segment
+# covers 8759 h, the final daily write at 8760 h never happens, and 31 Dec is
+# missing from every year (ecLand and CaMa alike). The extra record is the
+# 00:00 1 Jan instant of the following year, taken from the next year's file.
+_NREC=$(( N_HOURS + 1 ))
+FORCING_SOURCE_NEXT=${FORCING_SOURCE_NEXT:-}
+if [[ -z "$FORCING_SOURCE_NEXT" ]]; then
+    _y=$(basename "$FORCING_SOURCE" | grep -oE "[0-9]{4}\.nc$" | cut -d. -f1)
+    if [[ -n "$_y" ]]; then
+        _cand="${FORCING_SOURCE%${_y}.nc}$((10#$_y + 1)).nc"
+        [[ -s "$_cand" ]] && FORCING_SOURCE_NEXT="$_cand"
+    fi
+fi
+echo "== Preparing WFDE5 forcing slice (${N_HOURS}h integration -> ${_NREC} records, from ${START_DATE}) =="
+[[ -n "$FORCING_SOURCE_NEXT" ]] && echo "   continuing into $(basename "$FORCING_SOURCE_NEXT") for the final record"
 python3 "${REPO_ROOT}/forcing/preprocess_wfde5.py" \
     --input "$FORCING_SOURCE" \
+    ${FORCING_SOURCE_NEXT:+--next-input "$FORCING_SOURCE_NEXT"} \
     --output "${FORCING_DIR}/met_2DHT_${STA}.nc" \
-    --start-date "$START_DATE" --n-hours "$N_HOURS" --overwrite
+    --start-date "$START_DATE" --n-hours "$_NREC" --overwrite
 
 echo "== Rendering namelist(s) (ecland's own ecland_create_namelist.py) =="
 NAMELIST_ARGS=(-g "$GROUP" -n "$NAMELIST_TEMPLATE" -s "$STA" -t 2D -d "$DATADIR" -w "$WORKDIR")

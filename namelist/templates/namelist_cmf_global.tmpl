@@ -88,7 +88,13 @@ SHOUR=00
 EYEAR={yye}
 EMON={mme}
 EDAY={dde}
-EHOUR=23
+! EHOUR is the END hour of the CaMa integration and also names the restart
+! file ecland_run_model.sh moves (restart<EYEAR><EMON><EDAY><EHOUR>.nc).
+! Segments now run 00:00 1 Jan -> 00:00 1 Jan of Y+1, so the last forcing
+! record (and hence {yye}/{mme}/{dde}) is 1 Jan of Y+1 at hour 00, NOT
+! 31 Dec at hour 23. Leaving this at 23 would make CaMa integrate an extra
+! 23 h past the forcing and look for a restart file that was never written.
+EHOUR=00
 /
 &NMAP
 LMAPCDF=.TRUE.
