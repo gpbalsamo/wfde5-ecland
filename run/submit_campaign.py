@@ -47,6 +47,9 @@ def main():
     ap.add_argument("--restart-from", default="",
                     help="restartout.nc seeding the first segment; omit to cold-start")
     ap.add_argument("--ecfs-dir", default="ec:/pad/wfde5-ecland")
+    ap.add_argument("--no-energy-output", action="store_true",
+                    help="drop o_efl.nc (4.6 GB/yr); not needed for the water cycle "
+                         "or the CaMa dam comparison, but removes energy-closure capability")
     ap.add_argument("--ranks", type=int, default=16)
     ap.add_argument("--threads", type=int, default=8)
     ap.add_argument("--time", default="06:00:00")
@@ -79,6 +82,8 @@ def main():
                  f"FORCING_SOURCE={forcing}",
                  f"CMF_WEIGHTS_DIR={repo}/cama_flood/work_global_weights/glb_15min_out_n{a.ranks}",
                  f"ECFS_DIR={a.ecfs_dir}"]
+        if a.no_energy_output:
+            lines.append("WRITE_EFL=false")
         if prev_restart:
             lines.append(f"RESTART_FROM={prev_restart}")
         cfg.write_text("\n".join(lines) + "\n")

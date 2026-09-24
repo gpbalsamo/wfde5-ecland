@@ -58,6 +58,16 @@ NFORCWINDOW=${NFORCWINDOW:-0}
 # alone (default, unchanged behaviour); >0 sets NFRPOS accordingly.
 OUTPUT_FREQ_HOURS=${OUTPUT_FREQ_HOURS:-0}
 
+# Write the surface-energy-balance stream (o_efl.nc, 4.6 GB/simulated year)?
+# It is NOT needed for the water cycle or for the CaMa dam comparison -- with
+# one-way coupling (LECMF1WAY) the dams change CaMa's river state only, and
+# water-cycle closure needs o_wat (fluxes) and o_gg (storage), not o_efl.
+# Dropping it saves ~166 GB over 1989-2024 on both PERM and ECFS.
+# NOTE: this also removes the ability to check ENERGY-balance closure for
+# those years (PLAN.md Milestone 3, still NOT STARTED). 1988's o_efl is
+# already archived, so that capability is retained for one year.
+WRITE_EFL=${WRITE_EFL:-true}
+
 # ===========================================================================
 #  SEGMENT LENGTH vs OUTPUT FREQUENCY -- a hard, measured constraint
 # ===========================================================================
@@ -237,6 +247,12 @@ if [[ "$ECLAND_NPROMA" -gt 0 ]]; then
     echo "== NPROMA=${ECLAND_NPROMA} =="
 fi
 
+if [[ "$WRITE_EFL" != "true" ]]; then
+    sed -i "s/^\(\s*\)LWREFL=.*/\1LWREFL=.FALSE.            ! disabled: WRITE_EFL=false/" "$RENDERED_NAMELIST"
+    grep -qE "^\s*LWREFL=\.FALSE\." "$RENDERED_NAMELIST" || { echo "ERROR: failed to disable LWREFL" >&2; exit 1; }
+    echo "== o_efl.nc disabled (WRITE_EFL=false) =="
+fi
+
 echo "Rendered: $RENDERED_NAMELIST"
 grep -E "NSTOP|NLAT|NLON|NINDAT|NDFORC|NFORCWINDOW|LECMF1WAY" "$RENDERED_NAMELIST" || true
 
@@ -365,6 +381,20 @@ if [[ -n "$ECFS_DIR" ]]; then
         b=$(basename "$f")
         ecp -o "$f" "${ECFS_DIR}/${STA}/${b}" || { echo "ERROR: ecp failed for $b" >&2; exit 1; }
     done
+    # CaMa-Flood output lives OUTSIDE ${RUN_OUTPUT_DIR} (see CMF_OUTDIR above),
+    # so it was previously not archived at all. For a control-vs-dams
+    # comparison this is the output that actually differs: with one-way
+    # coupling the dams change CaMa's river state, not ecLand's.
+    if [[ "$RUN_CMF" == "true" && -d "$CMF_OUTDIR" ]]; then
+        emkdir -p "${ECFS_DIR}/${STA}/cmf" 2>/dev/null || true
+        for f in "${CMF_OUTDIR}"/*.nc; do
+            [[ -f "$f" ]] || continue
+            ecp -o "$f" "${ECFS_DIR}/${STA}/cmf/$(basename "$f")" \
+                || { echo "ERROR: ecp failed for CaMa $(basename "$f")" >&2; exit 1; }
+        done
+        echo "== Archived CaMa output ($(du -sh "$CMF_OUTDIR" | cut -f1)) =="
+    fi
+
     echo "== Verifying ECFS copy =="
     els -l "${ECFS_DIR}/${STA}/" || { echo "ERROR: els failed" >&2; exit 1; }
     echo "Archived. Local copy at ${RUN_OUTPUT_DIR} may now be removed."

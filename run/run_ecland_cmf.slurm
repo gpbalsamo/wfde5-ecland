@@ -85,6 +85,7 @@ export ECLAND_NPROMA=${ECLAND_NPROMA:-0}
 [[ -n "${RESTART_FROM:-}" ]] && export RESTART_FROM
 [[ -n "${ECFS_DIR:-}" ]] && export ECFS_DIR
 export VERIFY_RESTART=${VERIFY_RESTART:-true}
+export WRITE_EFL=${WRITE_EFL:-true}
 
 # OpenMP threads per MPI rank. ECMWF's shell profile sets OMP_NUM_THREADS=1,
 # so without this every rank runs single-threaded no matter how many cores
