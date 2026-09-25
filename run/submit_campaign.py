@@ -90,7 +90,13 @@ def main():
             lines.append(f"RESTART_FROM={prev_restart}")
         cfg.write_text("\n".join(lines) + "\n")
 
-        cmd = ["sbatch", "--parsable", f"--time={a.time}", "--mem=64G",
+        # --requeue: a 37-segment afterok chain is only as reliable as its
+        # weakest node. Y2001 (2026-09-25) hung in MPI_Allgatherv on ac6-143
+        # -- an InfiniBand/UCX stall, not a model or data fault, with 13 other
+        # years completing on other nodes -- and because the whole remainder
+        # was gated on afterok, one transient node failure stalled 23 queued
+        # segments. Requeue lets SLURM retry such a segment on another node.
+        cmd = ["sbatch", "--parsable", "--requeue", f"--time={a.time}", "--mem=64G",
                f"--ntasks={a.ranks}", f"--cpus-per-task={a.threads}",
                f"--job-name={tag}"]
         _d = dep or (a.after if not jobs else "")
