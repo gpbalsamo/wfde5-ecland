@@ -86,6 +86,13 @@ export ECLAND_NPROMA=${ECLAND_NPROMA:-0}
 [[ -n "${ECFS_DIR:-}" ]] && export ECFS_DIR
 export VERIFY_RESTART=${VERIFY_RESTART:-true}
 export WRITE_EFL=${WRITE_EFL:-true}
+# Let a config select a different executable (e.g. a -O0 -g -init=snan build
+# for debugging). NOT exporting this silently sent a snan diagnostic run
+# through the optimised binary on 2026-09-26 and wasted the cycle -- the
+# symptom was a 31 min runtime where -O0 takes hours, and "Line Unknown" in a
+# -g build. run_ecland.sh echoes "Executable built:", which is the thing to
+# check before trusting any debug run.
+[[ -n "${ECLAND_EXE:-}" ]] && export ECLAND_EXE
 
 # OpenMP threads per MPI rank. ECMWF's shell profile sets OMP_NUM_THREADS=1,
 # so without this every rank runs single-threaded no matter how many cores
