@@ -166,6 +166,20 @@
 &NAMPARAGS
   /
 &NAMPARFLAKE
+! Disable FLake's nudging of mean lake temperature to soil temperature at
+! level 1 (flakeene_mod.F90:467-470). That nudge is unconditional and creates a
+! POSITIVE FEEDBACK at lake-dominated points: the "soil" column there is
+! degenerate (sotype=0, SoilMoist=0) and free to run hotter than any lake, so
+! the lake is slaved to it. ifs-lakebench measured 368 K at Chilwa; this
+! campaign's 2001 segment reached T_MNW = 1.9e7 K, which dragged tile-1 skin
+! temperature to 11451 K and overflowed EXP() in cotworestress -- the
+! "forrtl: error (75)" that stalled the chain at step 8913.
+! The weighting EXP(-TMNW_NDG_RDSCL*(D-RDEPTH_W_MIN)) gives FULL strength at
+! minimum depth (this archive's LDEPTH minimum is 0.5 m), and the security
+! clamp MAX(T_MNW, RTPL_T_F) bounds the lake from BELOW only -- nothing caps it
+! from above. Setting the e-folding time enormous switches the nudge off, which
+! yos_flake.F90's own comments anticipate; the default is 1800 s.
+  TMNW_NDG_TIMESCL = 1.0E30
   /
 &NAMPAREXC
   /
