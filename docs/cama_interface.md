@@ -36,6 +36,36 @@ where `Qs - Qsb` matched to only ~2-3x the correct magnitude while
 full account. `remap_runoff.py` must implement `-(Qs+Qsb)` from the start,
 not discover this the way the reference project did.
 
+**The mechanism, read out of ecLand's own writer** (`wrtdcdf.F90:799-815`,
+confirmed 2026-09-27) — worth recording, because until now this repo only had
+the empirical gauge comparison above, and a rule you cannot derive is a rule
+someone will eventually "simplify":
+
+    Qs  <-  D1STSRO2                 ! surface runoff,        >= 0
+    Qsb <-  -D1STRO2 - D1STSRO2      ! -(total + surface),    <= 0
+
+`D1STRO2` is **total** runoff and `D1STSRO2` is surface runoff — confirmed
+independently by the coupling path, `cnt41s.F90:218-219`, which hands
+CaMa-Flood `D1STSRO2` and `D1STRO2-D1STSRO2` as two channels that sum to
+`D1STRO2`. Therefore
+
+    Qs + Qsb = D1STSRO2 - D1STRO2 - D1STSRO2 = -D1STRO2 = -(total runoff)
+
+The surface term cancels **by construction**, which is the whole reason the
+correct combination is a sum and not a difference. Two consequences:
+
+- `Qsb` is *not* subsurface runoff, despite its `long_name` saying
+  "subsurface runoff". It is `-(total + surface)`. Do not use it alone as a
+  drainage diagnostic.
+- Both components are needed. `Qs` alone and `-Qsb` alone are each wrong, and
+  `Qs - Qsb` double-counts surface runoff: on the validated 2001 year it gives
+  64744 Gt against the correct 38890 Gt, **+66.5%**.
+
+Sanity anchor for any future change: on 2001, `-(Qs+Qsb)` is 38890 Gt, i.e.
+33.9% of precipitation, and the global water budget closes to 0.504%. A
+runoff ratio far from ~1/3, or a budget residual that jumps, means the
+combination was changed.
+
 ## Conservation is the acceptance criterion, not a nice-to-have
 
 `aggregate_runoff_to_daily.py` (ported from `liaise-ecland`, see

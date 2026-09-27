@@ -99,8 +99,17 @@ def aggregate(hourly_path: Path, out_path: Path) -> None:
         rvar[:, :, :] = daily
         rvar.units = "kg m-2 s-1"
         rvar.long_name = (
-            "Total runoff (Qs - Qsb), daily mean -- matches TCOUPFREQ=24 "
-            "coupling frequency in the Fortran LECMF1WAY reference"
+            "Total runoff, daily mean -- matches TCOUPFREQ=24 coupling "
+            "frequency in the Fortran LECMF1WAY reference. This script only "
+            "re-times an already-prepared Runoff field; it does NOT combine "
+            "Qs/Qsb, and the formula named here previously (Qs - Qsb) was "
+            "wrong in a way worth spelling out, because it is the exact trap "
+            "docs/cama_interface.md warns about. ecLand writes Qs = surface "
+            "runoff (>=0) and Qsb = -(total + surface) (<=0) -- Qsb is NOT "
+            "subsurface runoff despite its long_name. So Qs + Qsb = -total "
+            "and total runoff is -(Qs + Qsb): the surface term cancels by "
+            "construction. Subtracting instead double-counts surface runoff, "
+            "+66.5% on the validated 2001 year (64744 vs 38890 Gt)."
         )
         rvar.source_file = str(hourly_path)
 

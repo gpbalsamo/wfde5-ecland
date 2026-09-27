@@ -256,6 +256,35 @@ the reasoning trail)**:
       `run/configs/ab_flake_{on,off}.env` -- the same 90 days from the same
       restart, configs differing only in `NAMELIST_TEMPLATE` -- which is what
       any claim about the nudge's magnitude should rest on.
+      **A/B result** (jobs 31737035/31737036, 2001-01-01 -> 2001-04-01,
+      each verified to have used its intended `TMNW_NDG_TIMESCL`):
+
+        lake temperature  TLWML max   304.52 K (off)  318.97 K (on)   +14.4 K
+                          worst point                                 +24.7 K
+                          lake pts shifted >1 K                         2.05%
+                          lake pts shifted >5 K                         0.25%
+                          global lake mean                            +0.035 K
+        water cycle       Evap                                        -0.345%
+                          Qs                                          -0.005%
+                          Qsb                                         +0.004%
+                          Rainf, Snowf                                 0.000%
+
+      So the nudge is a severe *lake temperature* error -- +24.7 K in 90 days,
+      diverging without bound over a year -- but its effect on the water cycle
+      is 0.005% in runoff, **two orders of magnitude below the 0.45-0.50%
+      budget-closure residual**, and it touches 0.044% of points at even
+      0.001 kg m-2 in 90-day evaporation. Identical `Rainf`/`Snowf` confirms
+      the two runs were otherwise the same run.
+      **Therefore 1988-2000 do NOT need rerunning for the water cycle, runoff,
+      discharge or the dam experiment**, which is what this archive exists for.
+      They WOULD need rerunning for any lake-temperature or surface-energy
+      analysis, where the 2000/2001 join is a real inhomogeneity. An earlier
+      recommendation in this file to rerun all 37 years was based on the
+      confounded year-to-year comparison and is withdrawn.
+      Caveat on scope: the A/B window is January-March, while the runaway
+      occurred in July, so the warm-season lake-temperature effect is likely
+      LARGER than +14.4 K. The water-cycle sensitivity would have to change by
+      ~100x to alter the conclusion above.
 - [ ] Quantify global runoff totals — **NOT STARTED**.
 
 **A real bug was found and fixed getting here (2026-09-19)**: WFDE5 is a
@@ -475,15 +504,17 @@ verified rather than assumed (`VERIFY_RESTART`, which compares the model's
 first output against the previous restart AND against climatology, and
 requires the chain distance to be under 1% of the cold-start distance).
 
-2001 was blocked for four days by the FLake nudging bug above and is the
-segment to treat with most suspicion: it is the only one produced with
-`TMNW_NDG_TIMESCL = 1.0E30`, so its lake temperatures are **not** directly
-comparable with 1988-2000, whose warm tail carries the nudge's bias
-(`TLWML` max 313.5 K vs 307.2 K). This matters for any lake or energy
-analysis spanning the join, and is **not yet resolved** — the honest options
-are to rerun 1988-2000 with the nudge off (14 h of compute, ~0.93 h/year
-wall including archiving) or to document the discontinuity. Nothing has
-decided this.
+2001 is the only segment produced with `TMNW_NDG_TIMESCL = 1.0E30`, so there
+is a real physics discontinuity at the 2000/2001 join. The A/B experiment
+recorded under Milestone 3 **sized** it, rather than leaving it a worry:
+0.005% in runoff (negligible — two orders of magnitude below the budget
+residual) against up to +24.7 K in lake temperature at individual points in
+only 90 days. So the archive is homogeneous for the water cycle and is NOT
+homogeneous for lake temperature or surface energy. **No rerun of 1988-2000
+is needed for this repo's purpose**; anyone doing lake or energy work across
+the join must know. An earlier draft of this file recommended rerunning all
+37 years on the strength of a Y2001-vs-Y2000 comparison that confounded the
+switch with interannual variability — that recommendation is withdrawn.
 
 Next, in order:
 1. **Resubmit 2002-2024** — `run/submit_campaign.py --start-year 2002
@@ -491,8 +522,9 @@ Next, in order:
    run/output/Y2001_20010101-20020101/restartout.nc`. The 23 segments queued
    behind the failed 2001 are dead (`DependencyNeverSatisfied`) and must be
    cancelled first. ~21 wall-clock hours at the measured rate.
-2. **Decide the 1988-2000 lake question** above, before any cross-year
-   analysis is published from this archive.
+2. ~~Decide the 1988-2000 lake question~~ — **DONE**, settled by the A/B
+   experiment above: no rerun needed for the water cycle. Document the join
+   for lake/energy users instead.
 3. **Quantify global runoff totals** and the remaining Milestone 6
    validation — still **NOT STARTED**.
 4. **`forcing/validate_wfde5.py` still does not exist.** The grid facts in
