@@ -71,7 +71,14 @@ def main():
     cfgdir = repo / "run" / "configs" / "campaign"
     cfgdir.mkdir(parents=True, exist_ok=True)
 
-    prev_restart, dep, jobs = a.restart_from, None, []
+    # Resolve --restart-from to an absolute path. run_ecland.sh tests it with
+    # [[ -f ]] and never cd's, so a relative value silently depends on the
+    # job's working directory, while every LATER segment gets an absolute path
+    # from prev_restart below -- so only the head segment would have been
+    # fragile, which is the kind of asymmetry that fails once at 03:00 and
+    # takes the other 22 chained segments with it.
+    prev_restart = str(Path(a.restart_from).resolve()) if a.restart_from else None
+    dep, jobs = None, []
     for tag, start, nhours, year in segments(a.start_year, a.end_year, a.mode):
         forcing = repo / "forcing" / "WFDE5_CRU_GPCC" / f"WFDE5_CRU_GPCC_{year}.nc"
         if not forcing.exists() and not a.dry_run:
@@ -93,7 +100,13 @@ def main():
             lines.append("WRITE_EFL=false")
         if prev_restart:
             lines.append(f"RESTART_FROM={prev_restart}")
-        cfg.write_text("\n".join(lines) + "\n")
+        # Only write when actually submitting. --dry-run used to write every
+        # config as a side effect, which clobbered the config of an ALREADY
+        # RUNNING segment (observed 2026-09-27 against job 31744027): a dry run
+        # must be safe to invoke while a campaign is in flight, or it is not a
+        # dry run.
+        if not a.dry_run:
+            cfg.write_text("\n".join(lines) + "\n")
 
         # --requeue: a 37-segment afterok chain is only as reliable as its
         # weakest node. Y2001 (2026-09-25) hung in MPI_Allgatherv on ac6-143
