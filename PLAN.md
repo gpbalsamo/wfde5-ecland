@@ -212,6 +212,50 @@ the reasoning trail)**:
       integrated), NOT rates; the script scales by the units attribute, not
       the variable name.
       `run/check_run.py` remains a NaN/crash check only; these are separate.
+- [x] Multi-year campaign, 1988-2001 — **DONE** 2026-09-27 for 14 of the 37
+      years. Annual segments, daily output, chained restarts with continuity
+      verified per segment, archived to `ec:/pad/wfde5-ecland` and confirmed
+      with `els`. 2002-2024 **NOT STARTED** (see "Immediate next step").
+      **A real bug in ecLand's FLake stopped this chain dead at 2001** and is
+      worth recording in full, because the crash surfaced three layers away
+      from its cause. Symptom: `forrtl: error (75): floating point exception`
+      in `cotworestress_mod.F90:430`, reproducibly at step 8913, on different
+      nodes (which should have ruled out infrastructure immediately — it did
+      not, and a `--requeue` was added as a remedy for what was never a
+      transient). Cause, from a core dump rather than from reasoning:
+      `flakeene_mod.F90:467-470` nudges mean lake temperature toward soil
+      temperature at level 1 with no validity condition, full strength at the
+      0.5 m minimum depth, and a clamp that bounds only from below. At
+      lake-dominated points the soil column is degenerate (`sotype=0`,
+      `SoilMoist=0`) and runs hotter than any lake, so the lake follows it
+      without bound: `T_MNW` reached **1.9e7 K**, dragging tile-1 skin
+      temperature to **11,451 K**, and `EXP(RSHP2AMMAX*(ZTSK-T2))` overflowed
+      in the carbon code. All forcing inputs at that point were normal.
+      Fixed by `TMNW_NDG_TIMESCL = 1.0E30` in both namelist templates (job
+      31717620: full year, 59:35, endpoint `2002-01-01T00`). Lake state after:
+      `TLWML` max **307.20 K**, mean 279.348 K — against 313.53 K / 279.352 K
+      for Y2000 with the nudge active. Unchanged mean, truncated warm tail.
+      In Y2000 the mixed layer, mean water and bottom temperatures all peaked
+      at the *same* 313.5258 K, which is a column slaved to the soil rather
+      than a lake in equilibrium — **so the nudge biased the warm tail in
+      every year of the archive**, and 2001 is only where it went
+      superexponential. Corroborates finding 4 of the user's `ifs-lakebench`
+      (368 K at Lake Chilwa), which anticipated this exact switch.
+      Nine wrong hypotheses preceded the core dump; the lesson is that when a
+      trap moves as you perturb rounding, stop guarding arithmetic and go read
+      the state.
+      2001 is fully validated: `run/check_run.py` **PASS** (no NaN/Inf in
+      30 GB), water residual **-577 Gt = 0.504% of precipitation**, energy
+      residual **+3242 EJ = 0.940% of net radiation**, both **PASS**; restart
+      continuity from Y2000 `3.19e-06` against a cold-start distance of
+      `169.2`; output ends at `2002-01-01T00` as required. Energy closure is
+      looser than 1988's 0.680% but inside tolerance; not investigated.
+      **Caveat on attributing the lake numbers**: the 307.2 K / 313.5 K
+      comparison above is Y2001 against Y2000, which confounds the switch with
+      interannual variability. The clean test is
+      `run/configs/ab_flake_{on,off}.env` -- the same 90 days from the same
+      restart, configs differing only in `NAMELIST_TEMPLATE` -- which is what
+      any claim about the nudge's magnitude should rest on.
 - [ ] Quantify global runoff totals — **NOT STARTED**.
 
 **A real bug was found and fixed getting here (2026-09-19)**: WFDE5 is a
@@ -366,9 +410,14 @@ requiring it to read the full scientific codebase or parse prose logs.
 **Honest current scope**: only Gate 0 (repository: Python/Bash syntax) is a
 real, executable check right now. `--profile fast` also runs `pytest tests/`
 (all synthetic). `--profile smoke/intermediate/reference/production` exit
-with status `NOT_IMPLEMENTED` (exit code 2) — Gates 1-5 depend on Milestones
-1-5 above, which are themselves NOT STARTED. Do not read "the CLI exists" as
-"the pipeline works" — see `CLAUDE.md`'s single most important rule.
+with status `NOT_IMPLEMENTED` (exit code 2). That is now a gap in the
+*interface*, not in the science: Milestones 1-5 have since produced real,
+validated results (14 archived annual segments, budget closure measured), so
+Gates 1-5 are implementable and simply have not been wired to the checks that
+already exist (`run/check_run.py`, `validation/check_budgets.py`,
+`init_clim/validate_init_grid.py`, `cama_flood/validate_remapping.py`).
+Do not read "the CLI exists" as "the pipeline works" — see `CLAUDE.md`'s
+single most important rule.
 
 ## Open blockers
 
@@ -377,46 +426,81 @@ with status `NOT_IMPLEMENTED` (exit code 2) — Gates 1-5 depend on Milestones
   fine time/space scales for run-of-river-type reservoirs — irrelevant to a
   first global naturalised (no-dam) pilot, but worth knowing before this repo
   ever turns dams on.
-- **ecLand's offline driver loads the ENTIRE declared forcing period into
-  memory upfront, not streamed** (found 2026-09-20, confirmed directly in
-  `/perm/pad/ecland/src/surf/offline/driver/sufcdf.F90`: `SUFCDF`, called
-  once at init, calls `RDFVAR` to read each forcing variable wholesale into
-  an array dimensioned `(NPOI, JPSTPFC)` -- active land points x the FULL
-  declared forcing length. `dtforc.F90`, called every timestep, only
-  interpolates within that already-resident array; it never re-reads from
-  disk mid-run). For this repo's real land-point count (87,798) this is
-  ~2 GB/month of forcing alone (8 variables), growing *linearly* with run
-  length -- a genuine hard wall for any multi-year run under the current
-  design, independent of grid resolution or CaMa-Flood coupling. Since
-  `dtforc.F90` only ever needs a small sliding window (current + next
-  forcing record) to interpolate, nothing on the consumption side actually
-  requires the whole series resident -- annual (or otherwise chunked) files
-  read incrementally would remove this ceiling entirely. This is a fix that
-  belongs in ecLand's own upstream source
-  (`sufcdf.F90`/`dtforc.F90`/`yomforc1s.F90`), not this repo -- worth
-  raising with the ecLand maintainers before attempting any multi-year
-  global run (see `README.md`'s "Pilot strategy": Test C, one full year, is
-  the current staged ceiling; anything longer needs this fixed first, or an
-  explicit decision to accept the memory cost).
+- ~~**ecLand's offline driver loads the ENTIRE declared forcing period into
+  memory upfront, not streamed**~~ — **RESOLVED 2026-09-22** by implementing
+  windowed forcing reads upstream in `/perm/pad/ecland` (user's `develop`
+  branch, commits `fa34baa`..`b217d5a`). The diagnosis stands as recorded:
+  `SUFCDF`, called once at init, read each variable wholesale into
+  `GFOR(NPOI, JPSTPFC, 12)` sized for the FULL declared forcing length, and
+  `dtforc.F90` only ever interpolated within that resident array. At 87,798
+  land points a leap year of hourly forcing would have needed ~74 GB.
+  The fix adds one namelist integer `NFORCWINDOW` (`NAMDIM`, **default 0 =
+  disabled**, so every existing namelist keeps today's behaviour bit for
+  bit): when set, `JPSTPFC = NFORCWINDOW`, `GFOR` is allocated small, and a
+  guard at the top of `DTFORC` refills it through a shared read routine
+  before any of that routine's dozen index formulas run — none of which were
+  touched. Verified by equivalence (windowed vs. full-load output identical)
+  and in production: the campaign runs `NFORCWINDOW=744`, and a full year
+  does 12 refills at 0.70 h/simulated year.
+  Two real bugs in the first cut of that work, both fixed before merge: an
+  EOF latch that fired on "window didn't move" rather than on reaching the
+  end of the record axis (out-of-bounds at small windows — there is now a
+  hard refusal below `NFORCWINDOW=8`), and `RDFVAR`'s `ZTIMEN` being
+  computed relative to call time, which is only correct when called once.
+  `LOADIAB` and `LPREINT` are refused in combination with windowing rather
+  than silently mis-handled.
+- **FLake nudges mean lake temperature to soil temperature unconditionally**
+  (found 2026-09-27, `flakeene_mod.F90:467-470`). Worked around in this
+  repo's namelist templates with `TMNW_NDG_TIMESCL = 1.0E30`; **the code
+  itself is unchanged upstream**, so any other user of that source still has
+  it. The nudge has no lake/soil-validity condition, its depth weighting
+  reaches full strength at the minimum lake depth (0.5 m in this archive, so
+  one 1800 s step is one e-folding time), and its security clamp
+  `MAX(T_MNW, RTPL_T_F)` bounds the result from below only. At lake-dominated
+  points the soil column is degenerate and free to run hotter than any lake,
+  so the lake is slaved to it unbounded. This stalled the campaign at 2001
+  for four days; see Milestone 3 for the measured numbers. Whether a
+  conditional guard belongs on `develop` in addition to the namelist switch
+  is **an open decision, not done**.
 
 ## Immediate next step
 
-Milestones 1-3 have each now produced one real, validated result: one month
-of WFDE5 forcing (2026-09-17), one global surfclim/soilinit build
-(2026-09-19), and one one-day global ecLand pilot run, PASS
-(2026-09-19) — see each milestone's own entry above for the real numbers
-and the real bug (WFDE5's masked-ocean-cell fill value) that had to be
-fixed to get there.
+**Campaign status (2026-09-27): 1988-2001 complete, validated and archived
+to `ec:/pad/wfde5-ecland`; 2002-2024 not yet run.**
 
-Two reasonable next steps, neither started:
-1. **Scale the pilot**: one month, then one full year, global (`README.md`
-   "Pilot strategy" Tests B/C) — reuse `run/run_ecland.sh` with a larger
-   `N_HOURS`/different `STA`, but note `NSTOP` for a full month/year needs a
-   correspondingly larger forcing slice from `preprocess_wfde5.py`, and nothing
-   has verified the model's actual runtime/memory cost at that scale yet.
-2. **Formalise the validation gate**: `forcing/validate_wfde5.py` (structural
-   QC, still doesn't exist — the grid facts in `docs/forcing_variables.md`
-   came from ad hoc inspection, not an automated check) and
-   `run/check_water_budget.py`/`check_energy_budget.py` (global, area-weighted
-   budget closure — `run/check_run.py` only checks for NaN/crash, not
-   physical consistency).
+14 annual segments exist as real, verified output — daily-frequency
+`o_gg`/`o_wat`/`o_efl` plus CaMa-Flood `rivsto`/`fldsto`/`totout`/`rivdph`,
+each chained from the previous year's `restartout.nc` with continuity
+verified rather than assumed (`VERIFY_RESTART`, which compares the model's
+first output against the previous restart AND against climatology, and
+requires the chain distance to be under 1% of the cold-start distance).
+
+2001 was blocked for four days by the FLake nudging bug above and is the
+segment to treat with most suspicion: it is the only one produced with
+`TMNW_NDG_TIMESCL = 1.0E30`, so its lake temperatures are **not** directly
+comparable with 1988-2000, whose warm tail carries the nudge's bias
+(`TLWML` max 313.5 K vs 307.2 K). This matters for any lake or energy
+analysis spanning the join, and is **not yet resolved** — the honest options
+are to rerun 1988-2000 with the nudge off (14 h of compute, ~0.93 h/year
+wall including archiving) or to document the discontinuity. Nothing has
+decided this.
+
+Next, in order:
+1. **Resubmit 2002-2024** — `run/submit_campaign.py --start-year 2002
+   --end-year 2024 --mode annual --output-freq-hours 24 --restart-from
+   run/output/Y2001_20010101-20020101/restartout.nc`. The 23 segments queued
+   behind the failed 2001 are dead (`DependencyNeverSatisfied`) and must be
+   cancelled first. ~21 wall-clock hours at the measured rate.
+2. **Decide the 1988-2000 lake question** above, before any cross-year
+   analysis is published from this archive.
+3. **Quantify global runoff totals** and the remaining Milestone 6
+   validation — still **NOT STARTED**.
+4. **`forcing/validate_wfde5.py` still does not exist.** The grid facts in
+   `docs/forcing_variables.md` came from ad hoc inspection, not an automated
+   check, and every forcing verification in this campaign has been manual.
+   This is the largest unautomated gap in the chain.
+5. **Upstream the two ecLand fixes** (the C4 `ICTYPE` bug in
+   `farquhar_mod.F90:451` and the FLake nudging) to `ecmwf-ifs/ecland`. Both
+   are on the user's `develop` fork only; the C4 bug affects 6.2% of land
+   points and ~44% of `Anday` at the worst point, so other users are
+   silently affected. Outward-facing — needs explicit approval.

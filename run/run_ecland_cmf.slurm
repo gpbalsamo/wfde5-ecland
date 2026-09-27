@@ -93,6 +93,14 @@ export WRITE_EFL=${WRITE_EFL:-true}
 # -g build. run_ecland.sh echoes "Executable built:", which is the thing to
 # check before trusting any debug run.
 [[ -n "${ECLAND_EXE:-}" ]] && export ECLAND_EXE
+# Let a config select different namelist templates, e.g. an A/B pair that
+# differs in one physics switch. Same class of omission as ECLAND_EXE above:
+# run_ecland.sh honours these, but a value that never reaches the job is
+# silently replaced by the default template, so the "B" run would be a second
+# copy of "A" and the diff would come out zero -- a false negative that looks
+# like a clean result.
+[[ -n "${NAMELIST_TEMPLATE:-}" ]] && export NAMELIST_TEMPLATE
+[[ -n "${NAMELIST_CMF_TEMPLATE:-}" ]] && export NAMELIST_CMF_TEMPLATE
 
 # OpenMP threads per MPI rank. ECMWF's shell profile sets OMP_NUM_THREADS=1,
 # so without this every rank runs single-threaded no matter how many cores
