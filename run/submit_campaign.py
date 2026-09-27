@@ -16,11 +16,16 @@ are sparse; actual use was 171 GB against 4.2 T free). The limit is bracketed
 but not characterised, so segments are sized to stay well inside the proven
 range: annual segments for daily output, monthly segments for hourly.
 
-Every segment must end at hour 23 of its final day -- ecland_create_namelist.py
-writes EHOUR=23 into the CaMa namelist unconditionally, and ecland_run_model.sh
-then moves restart<EYEAR><EMON><EDAY><EHOUR>.nc. A segment ending at any other
-hour fails AFTER a successful integration. Whole months and whole years both
-satisfy this.
+Every segment ends at hour 00 of the first day AFTER its period, so a year
+segment runs 00 on 1 January to 00 on 1 January of Y+1 and the whole calendar
+year is covered. The namelist templates set EHOUR=00, and ecland_run_model.sh
+moves restart<EYEAR><EMON><EDAY><EHOUR>.nc accordingly -- a 2001 segment
+produces restart2002010100.nc. EHOUR used to be 23, which silently dropped
+31 December from every segment; see the o_wat/o_gg time axis, which stamps
+each daily record at the END of its interval (365 records for a non-leap year,
+first 2 January 00, last 1 January 00 of Y+1). A segment ending at any hour the
+templates do not declare fails AFTER a successful integration, when the restart
+move cannot find its file.
 """
 import argparse, calendar, subprocess, sys
 from pathlib import Path
