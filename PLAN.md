@@ -228,14 +228,46 @@ the reasoning trail)**:
          the rest cannot accumulate and is discarded. Real model behaviour, not
          a bug, but it means a global water budget INCLUDING ice sheets cannot
          close and should never have been used as the acceptance test.
-      2. **Lakes (most of the -2884 Gt)**: the per-cell residual concentrates
-         on major lakes -- the ten worst cells are Lake Turkana (-11.96 Gt),
-         Lake Victoria (several cells, -4.7 to -5.4 Gt each) and Lake Maracaibo
-         (-5.37 Gt), all with `SWEML=0`. FLake carries lake temperature but the
-         budget has **no lake water storage term**, so precipitation onto and
-         evaporation from the lake fraction enter `Rainf`/`Evap` with nothing
-         to balance them. Quantification against `CLAKE` is IN PROGRESS; the
-         attribution is strongly indicated by location but not yet closed.
+      2. **Lakes (-2670 Gt, CONFIRMED 2026-09-28)**: 92.6% of the
+         non-glaciated imbalance sits on lake-bearing cells; the worst are Lake
+         Turkana, Lake Victoria and Lake Maracaibo, all with `SWEML=0`. The
+         term is lake evaporation: -2670 Gt/yr over 3.37e6 km2 of `CLAKE` is
+         **793 mm/yr**, squarely physical for open water. FLake carries lake
+         temperature with a FIXED DEPTH and no water mass budget, so that water
+         leaves the column having come from nowhere.
+         ecLand's own check does not conserve it either -- it **cancels** the
+         term, adding `ZLAKEE = PFRTI(:,9)*PEVAPTI(:,9)+PFRTI(:,1)*PEVAPTI(:,1)`
+         to BOTH storage and flux so lake points cannot fail
+         (`surftstp_ctl_mod.F90:1234-1245`; the commented-out line above shows
+         the earlier version simply skipped lake points).
+         **There is a closure path in CaMa-Flood and it does not work.** ecLand
+         already sends lake-tile evaporation on channel 3 of the coupling
+         buffer (`cnt41s.F90:220`), unconditionally; CaMa discards it unless
+         `LWEVAP=.TRUE.`. Measured A/B on 1994 (job 32308283, the archived
+         Y1994 being the LWEVAP=false arm):
+
+             lake evaporation demanded   2670.0 Gt
+             LWEVAP actually extracted      2.8 Gt   ->  0.1% recovered
+             discharge change                        -0.023%
+
+         The demand arrives (24603 cells extract, so the coupling is fine), but
+         `DWEVAPEX = MIN(P2FLDSTO, D2FLDFRC*DT*D2WEVAP)` confines extraction to
+         FLOODPLAIN storage scaled by flood fraction. 13876 of the 14065 cells
+         that HAVE floodplain storage do extract -- the mechanism works where
+         floodplains exist. Permanent lakes are not floodplains, so ~0 is
+         recoverable there. The unmet demand is dropped silently; `D2WEVAPEX`
+         records what was extracted, never what was asked.
+         The two switches meant to address exactly this, **`LWEVAPFIX` and
+         `LWEXTRACTRIV`, are DEAD CODE** -- declared, defaulted, logged,
+         MPI-broadcast, consistency-checked, and never read by any
+         computational routine, while shipping in three namelist files
+         (`namelists/namelist_cmf_48R1`, `tutorials/`, `tests/ifsbench/`) that
+         advertise them as working. Their consistency checks only `WRITE`, with
+         no `STOP`. **So there is no namelist route to closing this**; it needs
+         `LWEXTRACTRIV` implemented upstream.
+         **The archive is NOT materially affected**: enabling `LWEVAP` moves
+         discharge by -0.023%, so all 37 years remain usable and the dams
+         control stands.
       The residual is negative in **every one of the 33 years swept so far**
       (-522 to -1211 Gt). A closure error with a constant sign is a missing
       term, not noise -- that was the clue that broke this open.
