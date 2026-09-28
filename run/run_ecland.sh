@@ -210,11 +210,55 @@ if [[ -z "$FORCING_SOURCE_NEXT" ]]; then
 fi
 echo "== Preparing WFDE5 forcing slice (${N_HOURS}h integration -> ${_NREC} records, from ${START_DATE}) =="
 [[ -n "$FORCING_SOURCE_NEXT" ]] && echo "   continuing into $(basename "$FORCING_SOURCE_NEXT") for the final record"
+_MET="${FORCING_DIR}/met_2DHT_${STA}.nc"
+
+# Reuse an existing slice rather than rebuilding it, but ONLY after proving it
+# is the slice this run needs. Rebuilding is cheap next to a wrong forcing file
+# silently producing a plausible year, so the check is strict: right number of
+# records, right first AND last timestamp, and every required variable present.
+# Any doubt -> rebuild. FORCING_CACHE=false disables reuse entirely.
+_reuse=false
+if [[ "${FORCING_CACHE:-true}" == "true" && -s "$_MET" ]]; then
+    if python3 - "$_MET" "$_NREC" "$START_DATE" <<'PYEOF'
+import sys, netCDF4 as nc, numpy as np, datetime as dt
+path, nrec, start = sys.argv[1], int(sys.argv[2]), sys.argv[3]
+try:
+    f = nc.Dataset(path)
+    t = f.variables["time"]
+    if len(t) != nrec:
+        sys.exit(f"record count {len(t)} != {nrec}")
+    d = nc.num2date(t[:], t.units)
+    want = dt.datetime.fromisoformat(start)
+    if not str(d[0]).startswith(want.strftime("%Y-%m-%d %H")):
+        sys.exit(f"first record {d[0]} != {want}")
+    hours = (d[-1] - d[0]).total_seconds() / 3600.0
+    if abs(hours - (nrec - 1)) > 1e-6:
+        sys.exit(f"span {hours} h != {nrec-1} h")
+    for v in ("Tair", "Qair", "PSurf", "Wind_E", "Wind_N",
+              "SWdown", "LWdown", "Rainf", "Snowf"):
+        if v not in f.variables:
+            sys.exit(f"missing variable {v}")
+    sys.exit(0)
+except SystemExit:
+    raise
+except Exception as e:
+    sys.exit(f"unreadable: {e}")
+PYEOF
+    then
+        _reuse=true
+        echo "   reusing cached slice $(basename "$_MET") (validated: ${_NREC} records from ${START_DATE})"
+    else
+        echo "   cached slice rejected, rebuilding"
+    fi
+fi
+
+if [[ "$_reuse" != "true" ]]; then
 python3 "${REPO_ROOT}/forcing/preprocess_wfde5.py" \
     --input "$FORCING_SOURCE" \
     ${FORCING_SOURCE_NEXT:+--next-input "$FORCING_SOURCE_NEXT"} \
-    --output "${FORCING_DIR}/met_2DHT_${STA}.nc" \
+    --output "$_MET" \
     --start-date "$START_DATE" --n-hours "$_NREC" --overwrite
+fi
 
 echo "== Rendering namelist(s) (ecland's own ecland_create_namelist.py) =="
 NAMELIST_ARGS=(-g "$GROUP" -n "$NAMELIST_TEMPLATE" -s "$STA" -t 2D -d "$DATADIR" -w "$WORKDIR")
