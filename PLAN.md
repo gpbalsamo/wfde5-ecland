@@ -212,10 +212,27 @@ the reasoning trail)**:
       integrated), NOT rates; the script scales by the units attribute, not
       the variable name.
       `run/check_run.py` remains a NaN/crash check only; these are separate.
-- [x] Multi-year campaign, 1988-2001 — **DONE** 2026-09-27 for 14 of the 37
-      years. Annual segments, daily output, chained restarts with continuity
-      verified per segment, archived to `ec:/pad/wfde5-ecland` and confirmed
-      with `els`. 2002-2024 **NOT STARTED** (see "Immediate next step").
+- [x] Multi-year campaign, 1988-2024 — **COMPLETE** 2026-09-28. All **37
+      years** run, chained and archived to `ec:/pad/wfde5-ecland`; every year
+      verified present with its full file set (`o_gg`, `o_wat`, `o_efl`,
+      `restartout`, `restartout_cmf`, `input.namelist`, `run.log`, `cmf/`).
+      The 2002-2024 resubmission (jobs 31744027..31744076) ran **23 of 23
+      segments COMPLETED, zero failures and zero requeues**, 52:53-1:00:44
+      each (~56 min/year including forcing preprocessing and ECFS archiving).
+      Restart continuity verified per segment, not assumed.
+      Endpoints confirmed at both ends of the archive: 2024 (leap) has 366
+      daily records ending `2025-01-01 00:00`, which also exercises the 2025
+      boundary stub. Lake temperatures stay physical 23 restarts downstream of
+      the FLake fix -- `TLWML` max 306.3 K (2013), 308.3 K (2017), 306.9 K
+      (2024), against 313.5 K with the nudge active.
+      Budget closure sampled across the chain, all **PASS**: water
+      0.452-0.611%, energy 0.680-0.960% (1988, 2001, 2002, 2004, 2006, 2008,
+      2013, 2017). The residuals oscillate rather than climb, so there is **no
+      accumulating drift through the restart chain** -- an apparent monotonic
+      rise over the first three samples was an artefact of having only three.
+      A full 37-year `check_run.py` + `check_budgets.py` sweep is **IN
+      PROGRESS**; until it finishes, per-year validation is verified on the 8
+      sampled years above and NOT on the remaining 29.
       **A real bug in ecLand's FLake stopped this chain dead at 2001** and is
       worth recording in full, because the crash surfaced three layers away
       from its cause. Symptom: `forrtl: error (75): floating point exception`
@@ -494,10 +511,10 @@ single most important rule.
 
 ## Immediate next step
 
-**Campaign status (2026-09-27): 1988-2001 complete, validated and archived
-to `ec:/pad/wfde5-ecland`; 2002-2024 not yet run.**
+**Campaign status (2026-09-28): 1988-2024 COMPLETE -- all 37 years run and
+archived to `ec:/pad/wfde5-ecland`.**
 
-14 annual segments exist as real, verified output — daily-frequency
+37 annual segments exist as real, verified output — daily-frequency
 `o_gg`/`o_wat`/`o_efl` plus CaMa-Flood `rivsto`/`fldsto`/`totout`/`rivdph`,
 each chained from the previous year's `restartout.nc` with continuity
 verified rather than assumed (`VERIFY_RESTART`, which compares the model's
@@ -517,11 +534,9 @@ the join must know. An earlier draft of this file recommended rerunning all
 switch with interannual variability — that recommendation is withdrawn.
 
 Next, in order:
-1. **Resubmit 2002-2024** — `run/submit_campaign.py --start-year 2002
-   --end-year 2024 --mode annual --output-freq-hours 24 --restart-from
-   run/output/Y2001_20010101-20020101/restartout.nc`. The 23 segments queued
-   behind the failed 2001 are dead (`DependencyNeverSatisfied`) and must be
-   cancelled first. ~21 wall-clock hours at the measured rate.
+1. ~~Resubmit 2002-2024~~ — **DONE** 2026-09-28, 23/23 segments COMPLETED.
+   The campaign that this repo exists to produce is finished. What remains is
+   analysis and the dam experiment it was built as a control for.
 2. ~~Decide the 1988-2000 lake question~~ — **DONE**, settled by the A/B
    experiment above: no rerun needed for the water cycle. Document the join
    for lake/energy users instead.
