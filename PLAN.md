@@ -196,14 +196,54 @@ the reasoning trail)**:
       enforced in `run/run_ecland.sh`: annual chunks -> daily output,
       hourly output -> monthly chunks. The limit is bracketed between 36 GB
       (works) and 424 GB (fails) but **not characterised**.
-- [x] Verify energy budget — **DONE** 2026-09-24, `validation/check_budgets.py`,
+- [~] Verify energy budget — **DONE 2026-09-24 but NOT RE-CONFIRMED** after
+      the water-budget retraction below. It uses the SAME all-land mask, so if
+      ice-sheet and lake points distort the water closure they may distort this
+      one too; nobody has decomposed the energy residual by surface type. The
+      measured numbers below stand as measured, and the 33-year sweep has it in
+      a narrow 0.53-0.96% band across the archive, which is at least consistent
+      with a real closure rather than a cancellation -- but "consistent with"
+      is not "checked". Treat as provisional until decomposed.
+      Original entry: `validation/check_budgets.py`,
       area-weighted global land totals. On the validated 1988 year:
       residual **+2347 EJ = 0.680% of net radiation**, **PASS**.
       Terms: SWnet 660354, LWnet -315357, Qle -201593, Qh -140360 EJ.
       Fluxes are downward-positive (`SurfSgn_convention = "Mathematical"`),
       so the turbulent terms are ADDED, not subtracted — subtracting them
       doubles the imbalance, the energy-side twin of the Qs/Qsb trap.
-- [x] Verify water budget — **DONE** 2026-09-24, same script. On 1988:
+- [ ] Verify water budget — **NOT VERIFIED** (was marked DONE 2026-09-24; that
+      label was **wrong and is retracted 2026-09-28**). The global closure
+      figure passes only because two large errors of OPPOSITE SIGN cancel.
+      Measured on 1994: residual over all land -1210.6 Gt (1.069%), but over
+      non-glaciated land alone **-2883.8 Gt = 2.605% of precipitation**, with
+      **+2072 Gt** of the opposite sign over ice-sheet points. Excluding the
+      ice sheets makes closure ~4x WORSE, which is how the cancellation was
+      found. 2.6% is ~2.6x the 1.0% tolerance, over exactly the land where the
+      hydrology, runoff and discharge happen.
+      Two distinct mechanisms, one understood and one being quantified:
+      1. **Ice sheets (+2072 Gt)**: `SWEML` is hard-capped at exactly
+         10000.000 kg m-2 (10 m w.e.) and 18584 points -- **21% of land** --
+         sit at that cap. They receive 2301 Gt of snowfall in 1994 (25% of the
+         global land total) and shed only ~753 Gt via evaporation and runoff;
+         the rest cannot accumulate and is discarded. Real model behaviour, not
+         a bug, but it means a global water budget INCLUDING ice sheets cannot
+         close and should never have been used as the acceptance test.
+      2. **Lakes (most of the -2884 Gt)**: the per-cell residual concentrates
+         on major lakes -- the ten worst cells are Lake Turkana (-11.96 Gt),
+         Lake Victoria (several cells, -4.7 to -5.4 Gt each) and Lake Maracaibo
+         (-5.37 Gt), all with `SWEML=0`. FLake carries lake temperature but the
+         budget has **no lake water storage term**, so precipitation onto and
+         evaporation from the lake fraction enter `Rainf`/`Evap` with nothing
+         to balance them. Quantification against `CLAKE` is IN PROGRESS; the
+         attribution is strongly indicated by location but not yet closed.
+      The residual is negative in **every one of the 33 years swept so far**
+      (-522 to -1211 Gt). A closure error with a constant sign is a missing
+      term, not noise -- that was the clue that broke this open.
+      Do NOT "fix" this by widening `--water-tol`. The tolerance is not the
+      problem; the budget equation is incomplete, and 1994/1995 merely sit
+      closest to the line.
+- [x] ~~Verify water budget~~ — superseded; original 2026-09-24 entry follows
+      for the record. On 1988:
       residual **-525 Gt = 0.452% of precipitation**, **PASS**.
       Terms: precipitation 116090 Gt, evaporation -80302 Gt, runoff
       (Qs+Qsb) -42410 Gt, DelSoilMoist -3429 Gt — all independently
@@ -225,11 +265,14 @@ the reasoning trail)**:
       boundary stub. Lake temperatures stay physical 23 restarts downstream of
       the FLake fix -- `TLWML` max 306.3 K (2013), 308.3 K (2017), 306.9 K
       (2024), against 313.5 K with the nudge active.
-      Budget closure sampled across the chain, all **PASS**: water
-      0.452-0.611%, energy 0.680-0.960% (1988, 2001, 2002, 2004, 2006, 2008,
-      2013, 2017). The residuals oscillate rather than climb, so there is **no
-      accumulating drift through the restart chain** -- an apparent monotonic
-      rise over the first three samples was an artefact of having only three.
+      Budget closure: **the earlier "all PASS, water 0.452-0.611%" claim was
+      from an 8-year sample and is retracted.** The full sweep (33 of 37 years
+      done) gives water 0.449-1.069% with **1994 and 1995 FAILING** the 1.0%
+      gate, and the global figure is itself unsafe -- see the retracted water
+      budget entry above for why it closes only by cancellation. Energy sits in
+      a 0.53-0.96% band. The residuals oscillate rather than climb, so there is
+      still **no accumulating drift through the restart chain**; that
+      conclusion survives, unlike the closure claim.
       A full 37-year `check_run.py` + `check_budgets.py` sweep is **IN
       PROGRESS**; until it finishes, per-year validation is verified on the 8
       sampled years above and NOT on the remaining 29.
