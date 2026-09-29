@@ -540,6 +540,50 @@ already exist (`run/check_run.py`, `validation/check_budgets.py`,
 Do not read "the CLI exists" as "the pipeline works" — see `CLAUDE.md`'s
 single most important rule.
 
+## Water-cycle bugs found and fixed (2026-09-29)
+
+Two independent bugs in ecLand, same shape -- a correction that clips a
+reservoir and silently drops the residue. Fixed on the user's `develop` fork
+(`0d07a86`), NOT yet upstream.
+
+1. **Snow cap discarded mass** (`surftstp_ctl_mod.F90:731`). The permanent-snow
+   cap truncates the pack to 10000 kg/m2 and threw the excess away. `ZROFS`
+   exists to carry it to surface runoff as ice calving and was declared,
+   zeroed and added to `PROFS` -- but **never assigned**. ~1673 Gt/yr,
+   Greenland and the Antarctic margin. A third defect in the same place: the
+   calving add sat inside `IF (LEROLAKE)`, gating an ICE term on a LAKE switch.
+2. **Deepest soil layer discarded a deficit** (`srfwng_mod.F90:176`). The
+   negative-soil-moisture correction cascades the deficit downward, but at the
+   bottom layer `IF (JK < KLEVS_WB)` does not fire and it is clipped away.
+   ~214 Gt/yr at 1860 hyper-arid points -- Sahara/Sahel, Atacama, Peruvian
+   coast -- the only places where the whole column runs dry.
+
+**Verified by ecLand's own per-grid-point checker** (`LEWBCHECK`, 1 day,
+global coupled): violations **172828 -> 96093 -> 0**, `sum|residual|`
+**8.12e-01 -> 4.29e-02 -> 0**, `run.log` **280 MB -> 109 KB**. Zero at a
+~machine-epsilon threshold. Full-year 1994 decomposed by surface (Gt):
+
+        ice-capped     +1673.2  ->    -0.1
+        all other land  -213.8  ->    -0.0
+        lake-bearing   -2670.0  -> -2376.3
+        TOTAL          -1210.6  -> -2376.4
+
+The TOTAL rises, and that is the correct result: the old global figure closed
+by **cancellation** of +1673 (ice) against -2670 (lakes), and removing the ice
+error unmasks the lake term. A larger headline residual now means a more
+trustworthy archive. Discharge impact **-0.52%**.
+
+**What remains is not an ecLand bug**: ~2400 Gt/yr of lake evaporation with no
+source, because FLake carries lake temperature with a fixed depth and no water
+mass budget. CaMa's closure path is `LWEVAP` (recovers 0.1%, floodplain-limited)
+plus `LWEXTRACTRIV`, which is **dead code**. Closing this needs upstream work.
+
+**Performance note, measured**: two nodes (16 ranks x 16 threads, 256 CPU, `np`)
+is **not** faster for annual segments -- 13964 forecast days/day against 14964
+on one node at 16x8. A one-month test suggested 20437 and did not reproduce at
+annual scale; do not extrapolate node scaling from short runs. The real win is
+the validated forcing cache (604 s/year, ~18%).
+
 ## Open blockers
 
 - `liaise-ecland`'s own reservoir/dam-module investigation (CaMa-Flood v4.20
