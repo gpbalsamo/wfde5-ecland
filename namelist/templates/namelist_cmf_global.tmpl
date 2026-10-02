@@ -122,7 +122,22 @@ LINTERP=true
 LINPEND  = .FALSE.
 LITRPCDF = .TRUE.
 CINPMAT  ="__CAMA_INPMAT__"
-DROFUNIT =86400.
+! DROFUNIT converts the incoming runoff to m3/m2/s: CaMa divides by it
+! (cmf_ctrl_forcing_mod.F90:782,813). ecLand hands over runoff accumulated as
+! METRES OVER ONE COUPLING INTERVAL -- cnt41s.F90:218 adds
+! D1STSRO2*TSTEP*0.001 each step and zeroes the buffer after every handover
+! (cnt41s.F90:364). So DROFUNIT MUST EQUAL TCOUPFREQ*3600, the interval in
+! seconds. With TCOUPFREQ=1 that is 3600.
+!
+! This was 86400, inherited from the official T21 reference, which couples
+! 12-hourly. Hourly coupling with a daily divisor made ALL routed discharge
+! 24x too small: Amazon 6,022 m3/s against ~175,000 observed; applying the
+! factor 24 recovers 144,500 (Amazon), 36,700 (Congo), 18,100 (Mississippi)
+! against ~175,000 / ~41,000 / ~17,000. The land-side water budget was never
+! affected -- ecLand's own runoff is correct.
+! NB the T21 reference itself has TCOUPFREQ=12 with DROFUNIT=86400, i.e. the
+! same inconsistency at 2x. run/run_ecland.sh now asserts the relation.
+DROFUNIT =3600.
 CROFCDF="runoff.nc"
 CVNROF   = "Qs"
 CVNSUB   = "Qsb"

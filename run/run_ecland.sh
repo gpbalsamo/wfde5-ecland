@@ -275,6 +275,31 @@ python3 "${ECLAND_ROOT}/share/ecland/scripts/ecland_create_namelist.py" "${NAMEL
 
 RENDERED_NAMELIST="${WORKDIR}/namelist_${STA}"
 [[ -f "$RENDERED_NAMELIST" ]] || { echo "ERROR: namelist was not rendered: $RENDERED_NAMELIST" >&2; exit 1; }
+
+# DROFUNIT must equal the coupling interval in seconds. ecLand hands CaMa runoff
+# accumulated as metres over ONE coupling interval (cnt41s.F90:218, buffer zeroed
+# at :364), and CaMa divides by DROFUNIT to reach m3/m2/s. A mismatch rescales
+# ALL discharge silently and leaves the land budget looking perfect: inheriting
+# the 12-hourly reference's DROFUNIT=86400 while coupling hourly made discharge
+# 24x too small for an entire 37-year campaign before anyone compared the Amazon
+# against a gauge. Cheap to check, so check it.
+if [[ "$RUN_CMF" == "true" ]]; then
+    _rcmf="${WORKDIR}/namelist_cmf_${STA}"
+    if [[ -f "$_rcmf" ]]; then
+        _tcf=$(grep -oE "^\s*TCOUPFREQ\s*=\s*[0-9.]+" "$RENDERED_NAMELIST" | grep -oE "[0-9.]+$" | head -1)
+        _dru=$(grep -oE "^\s*DROFUNIT\s*=\s*[0-9.]+" "$_rcmf" | grep -oE "[0-9.]+$" | head -1)
+        if [[ -n "$_tcf" && -n "$_dru" ]]; then
+            _want=$(python3 -c "print(float($_tcf)*3600.0)")
+            python3 -c "import sys; sys.exit(0 if abs(float($_dru)-float($_want))<1e-6 else 1)" || {
+                echo "ERROR: DROFUNIT=${_dru} but TCOUPFREQ=${_tcf} h requires ${_want}." >&2
+                echo "       A mismatch rescales all CaMa discharge by ${_tcf}*3600/${_dru}." >&2
+                exit 1; }
+            echo "== DROFUNIT=${_dru} matches TCOUPFREQ=${_tcf} h =="
+        else
+            echo "WARNING: could not verify DROFUNIT against TCOUPFREQ" >&2
+        fi
+    fi
+fi
 # ecland_create_namelist.py renders the template with a FIXED set of
 # format() keys, so NFORCWINDOW cannot be a {placeholder} in the template
 # without patching that script. Inject it into the rendered &NAMDIM here
