@@ -584,6 +584,44 @@ on one node at 16x8. A one-month test suggested 20437 and did not reproduce at
 annual scale; do not extrapolate node scaling from short runs. The real win is
 the validated forcing cache (604 s/year, ~18%).
 
+## Campaign v2: 1988-2024 re-run with the water fixes (2026-10-01)
+
+**COMPLETE and fully validated.** 37/37 segments, zero failures, zero requeues,
+~47 min/simulated year, archived to `ec:/pad/wfde5-ecland-v2` (all 37 years
+verified present with their full file set). The pre-fix archive stays at
+`ec:/pad/wfde5-ecland` as the comparison control -- do not overwrite it.
+
+**Validation sweep over all 37 years** (`check_run.py` + budget + per-surface
+decomposition + lake temperature):
+
+        check_run (NaN/Inf)   37/37 PASS
+        ice-capped points     -0.6 .. -0.0 Gt   (was +1673 Gt/yr)
+        all other land        +0.0 Gt           (was  -214 Gt/yr)
+        lake-bearing       -2470 .. -2324 Gt
+        water residual     1.977% .. 2.191%     (0 failures)
+        TLWML max         304.95 .. 308.46 K
+
+Both leaks closed to within rounding in **every year**, not a sample. Lakes
+carry the entire remaining residual; there is no fourth unexplained term.
+
+The headline residual RISES (~1% -> ~2%) and that is the improvement: the old
+figure closed by **cancellation** between the +1673 ice error and the -2670
+lake term, so it drifted year to year and 1994/1995 failed outright. There is
+now one physical term, steady to +-5%.
+
+Lake temperatures are homogeneous end to end (304.95-308.46 K). The previous
+archive ran the FLake nudge ON 1988-2000 and OFF from 2001, leaving a **6.3 K
+step** at the join; that inhomogeneity is gone.
+
+**CI**: full ecLand suite **20/20 green** with `LEWBCALVFIX`/`LEWBDEEPFIX`
+defaulting `.TRUE.` -- 4 reference tests + 16 ifsbench including the global T21
+coupled case, dp 2D at 1e-8 tolerance. Taking these changes upstream would NOT
+require regenerating reference values: the fixed paths do not activate in the
+reference domains (no >10 m w.e. snowpack, no fully drained soil column).
+**The ecLand tests cannot be run with `ctest -j`** -- the sp and dp variants
+share a working directory and clobber each other's restart, producing an
+NCERROR in `sucdfres` at init that looks like a physics failure and is not.
+
 ## Open blockers
 
 - `liaise-ecland`'s own reservoir/dam-module investigation (CaMa-Flood v4.20
