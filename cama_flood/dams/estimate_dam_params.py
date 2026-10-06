@@ -127,6 +127,38 @@ def main():
 
     ok = [r for r in rows if np.isfinite(r[2]) and r[0]["cap"] > 0]
     print(f"\nusable dams           : {len(ok)} / {nd}")
+
+    # CaMa represents ONE dam per river cell: I1DAM(ISEQ) is a single flag and
+    # DAMOUT's outflow loop runs over dams writing to DamSeq(IDAM), so two dams
+    # sharing a cell means the later one silently wins and the earlier one's
+    # storage vanishes. GRanD has cascades inside a single 0.25 deg cell (five
+    # dams in one cell in Japan, four in Spain, four in Romania), so merge them
+    # instead of losing them: capacities add, and Qn/Qf are already identical
+    # because they come from that same cell's discharge. DamYear is taken from
+    # the LARGEST member, i.e. the year most of the cell's storage appeared --
+    # year-by-year commissioning is per dam, so a merged cell can only have one
+    # date and the dominant reservoir is the defensible choice.
+    bycell = {}
+    for d, qn, qf, qT, fld, con in ok:
+        k = (d["ix"], d["iy"])
+        bycell.setdefault(k, []).append((d, qn, qf, qT, fld, con))
+    merged = []
+    n_merged = 0
+    for k, grp in bycell.items():
+        if len(grp) == 1:
+            merged.append(grp[0]); continue
+        n_merged += len(grp) - 1
+        grp.sort(key=lambda g: -g[0]["cap"])          # largest first
+        lead = grp[0]
+        d = dict(lead[0])
+        d["cap"] = sum(g[0]["cap"] for g in grp)
+        d["name"] = f'{lead[0]["name"][:20]}+{len(grp)-1}'
+        merged.append((d, lead[1], lead[2], lead[3],
+                       sum(g[4] for g in grp), sum(g[5] for g in grp)))
+    if n_merged:
+        print(f"  merged {n_merged} dam(s) sharing a cell -> {len(merged)} cells "
+              f"(capacity preserved, not shadowed)")
+    ok = merged
     if not ok:
         sys.exit("ERROR: no dam produced a usable Qf. A Gumbel fit needs at least 5 "
                  "annual maxima -- check that --cmf-glob matched enough years "

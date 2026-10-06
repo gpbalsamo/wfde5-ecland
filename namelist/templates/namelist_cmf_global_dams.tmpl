@@ -1,23 +1,22 @@
-! A/B TEMPLATE -- identical to namelist_cmf_global.tmpl except LWEVAP=true
-! and the 'wevap' diagnostic added to CVARSOUT.
+! DAMS configuration -- identical to namelist_cmf_global.tmpl except that
+! CaMa-Flood's reservoir scheme is ON, with year-by-year commissioning.
+! The naturalised control is the v4 archive (ec:/pad/wfde5-ecland-v4),
+! which is this file with LDAMOUT=.FALSE.
 !
-! LWEVAP makes CaMa-Flood extract open-water evaporation from FLOODPLAIN
-! storage (cmf_calc_stonxt_mod.F90:84-91). ecLand already sends lake-tile
-! evaporation on channel 3 of the coupling buffer (cnt41s.F90:220,
-! -D1STIEVAPU2(:,9,...)); with LWEVAP=false CaMa simply discards it, which
-! is why ~2670 Gt/yr of lake evaporation has no source in our archive.
+! dam_params.csv is built by cama_flood/dams/estimate_dam_params.py from
+! v4's own discharge: Gumbel (L-moments) on 37 annual maxima at each dam
+! cell -> Q100 -> Qf = 0.3*Q100, Qn = mean flow, FldVol/ConVol split 37/63
+! of GRanD capacity. 3697 cells from 3982 GRanD dams allocated to the
+! glb_15min network -- 285 dams share a cell with another and are MERGED
+! (capacities added, 6642.7 km3 preserved exactly), because CaMa is
+! one-dam-per-cell and would otherwise silently drop the shadowed ones.
+! The 3127 sub-grid GRanD dams are excluded: every one has area_CaMa=-888
+! (no drainage-area match), so upreal -- which the H22 rule divides by --
+! cannot be supplied without inventing it. They are 3.3% of capacity.
 !
-! Expect only PARTIAL recovery. The extraction is
-!    DWEVAPEX = MIN( P2FLDSTO, D2FLDFRC*DT*D2WEVAP )
-! so it is capped by floodplain storage and scaled by flood fraction; a
-! permanent lake cell may hold little P2FLDSTO. The unmet demand is dropped
-! silently -- D2WEVAPEX records what WAS extracted, never what was asked.
-! The two switches that would address that, LWEVAPFIX and LWEXTRACTRIV, are
-! DEAD CODE: declared, defaulted, logged, broadcast, consistency-checked,
-! and never read by any computational routine. Setting them does nothing.
-!
-! The ratio (wevap extracted) / (2670 Gt demanded) is the number this run
-! exists to measure.
+! CAVEATS to carry into any analysis: a 100-year return period is being
+! extrapolated from 37 annual maxima, and Qf = 0.3*Q100 is CaMa's own
+! convention, not something validated here.
 ! Global CaMa-Flood coupling namelist, generalised from ecland's own
 ! official GLOBAL coupled test reference,
 ! /perm/pad/ecland/tests/ifsbench/namelist_cmf_2d_gl_t21 (ecland VERSION
@@ -62,9 +61,9 @@ LFPLAIN=.TRUE.
 LKINE=.FALSE.
 LFLDOUT=.TRUE.
 LPTHOUT=.TRUE.
-LDAMOUT  = .FALSE.
+LDAMOUT  = .TRUE.
 LROSPLIT=true
-LWEVAP=true
+LWEVAP=false
 LWEVAPFIX=.FALSE
 LWEXTRACTRIV=FALSE
 LGDWDLY=false
@@ -79,6 +78,14 @@ LLEAPYR=.TRUE.
 LMAPEND=.FALSE.
 LBITSAFE=.TRUE.
 LSLOPEMOUTH=.FALSE.
+/
+
+&NDAMOUT
+CDAMFILE = "/perm/pad/wfde5-ecland/cama_flood/dams/dam_params.csv"   ! per-cell dam parameters
+LDAMTXT  = .TRUE.                     ! write the dam diagnostic text output
+LDAMH22  = .FALSE.                    ! Yamazaki&Funato rule (H22 needs reliable upreal)
+LDAMYBY  = .TRUE.                     ! year-by-year commissioning from DamYear
+LiVnorm  = .TRUE.
 /
 &NDIMTIME
 CDIMINFO = "diminfo.txt"
@@ -142,6 +149,21 @@ LINTERP=true
 LINPEND  = .FALSE.
 LITRPCDF = .TRUE.
 CINPMAT  ="__CAMA_INPMAT__"
+! DROFUNIT converts the incoming runoff to m3/m2/s: CaMa divides by it
+! (cmf_ctrl_forcing_mod.F90:782,813). ecLand hands over runoff accumulated as
+! METRES OVER ONE COUPLING INTERVAL -- cnt41s.F90:218 adds
+! D1STSRO2*TSTEP*0.001 each step and zeroes the buffer after every handover
+! (cnt41s.F90:364). So DROFUNIT MUST EQUAL TCOUPFREQ*3600, the interval in
+! seconds. With TCOUPFREQ=1 that is 3600.
+!
+! This was 86400, inherited from the official T21 reference, which couples
+! 12-hourly. Hourly coupling with a daily divisor made ALL routed discharge
+! 24x too small: Amazon 6,022 m3/s against ~175,000 observed; applying the
+! factor 24 recovers 144,500 (Amazon), 36,700 (Congo), 18,100 (Mississippi)
+! against ~175,000 / ~41,000 / ~17,000. The land-side water budget was never
+! affected -- ecLand's own runoff is correct.
+! NB the T21 reference itself has TCOUPFREQ=12 with DROFUNIT=86400, i.e. the
+! same inconsistency at 2x. run/run_ecland.sh now asserts the relation.
 DROFUNIT =3600.
 CROFCDF="runoff.nc"
 CVNROF   = "Qs"
@@ -153,7 +175,7 @@ SHOURIN=00
 /
 &NOUTPUT
 COUTDIR="__CAMA_OUTDIR__"
-CVARSOUT="rivsto,fldsto,totout,rivdph,wevap"
+CVARSOUT="rivsto,fldsto,totout,rivdph,damsto,daminf"
 COUTTAG=""
 LOUTVEC=.FALSE.
 LOUTCDF=.TRUE.
