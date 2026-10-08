@@ -52,6 +52,11 @@ def main():
     ap.add_argument("--restart-from", default="",
                     help="restartout.nc seeding the first segment; omit to cold-start")
     ap.add_argument("--ecfs-dir", default="ec:/pad/wfde5-ecland")
+    # Without this a dams campaign silently uses the no-dams CaMa template and
+    # becomes a second control -- 28 hours of compute producing the wrong
+    # experiment, with nothing in the logs to say so.
+    ap.add_argument("--cmf-template", default=None,
+                    help="CaMa namelist template (e.g. namelist_cmf_global_dams.tmpl)")
     ap.add_argument("--no-energy-output", action="store_true",
                     help="drop o_efl.nc (4.6 GB/yr); not needed for the water cycle "
                          "or the CaMa dam comparison, but removes energy-closure capability")
@@ -98,6 +103,8 @@ def main():
                  f"ECFS_DIR={a.ecfs_dir}"]
         if a.no_energy_output:
             lines.append("WRITE_EFL=false")
+        if a.cmf_template:
+            lines.append(f"NAMELIST_CMF_TEMPLATE={a.cmf_template}")
         if prev_restart:
             lines.append(f"RESTART_FROM={prev_restart}")
         # Only write when actually submitting. --dry-run used to write every
