@@ -622,6 +622,119 @@ reference domains (no >10 m w.e. snowpack, no fully drained soil column).
 share a working directory and clobber each other's restart, producing an
 NCERROR in `sucdfres` at init that looks like a physics failure and is not.
 
+## The DROFUNIT bug: all discharge was 24x too small (2026-10-02)
+
+`DROFUNIT` is the runoff-to-CaMa coupling interval **in seconds** and must
+equal `TCOUPFREQ * 3600`. This repo's template carried `DROFUNIT = 86400`
+with `TCOUPFREQ = 1`, so every discharge in campaigns v1 and v2 is **24x too
+small**. Verified three ways: in code (CaMa's runoff buffer is zeroed at each
+handover, so the divisor is the handover interval, not a day), by magnitude
+(Amazon annual mean 6,022 m3/s against an observed ~175,000), and by the
+correction landing within 15% on three of four large rivers.
+
+The same error was present in the **shipped ecLand T21 reference**
+(`tests/ifsbench/namelist_cmf_2d_gl_t21`) at 2x, fixed upstream in `eca7b93`
+and measured at **2.005x**.
+
+Two process failures let this survive two complete 37-year archives:
+
+- **The validation sweep never looked at discharge.** Budgets closed and
+  `check_run` passed throughout, because `DROFUNIT` affects only CaMa's
+  internal scaling and not ecLand's water balance at all. Gauge comparison
+  is now part of the sweep.
+- **A hollow verification.** The T21 test fetches `namelist_cmf_2d_gl_t21`
+  into `input_cmf.nam` only *when absent*, so a cached copy from an earlier
+  run is reused silently. "4/4 tests pass with the corrected value" was
+  measured against the stale namelist and was meaningless. CI provably
+  cannot catch a wrong `DROFUNIT`; any upstream fix should carry a runtime
+  assertion in `CMF_FORCING_INIT` instead of relying on a reference value.
+
+`run/run_ecland.sh` now asserts `DROFUNIT == TCOUPFREQ*3600` and refuses to
+run otherwise.
+
+## Campaign v4: the naturalised control (2026-10-02)
+
+**COMPLETE and fully validated.** 37/37 segments, zero failures, archived to
+`ec:/pad/wfde5-ecland-v4`. This is the naturalised (no-dam) control the dams
+experiment is measured against. v3 was stopped deliberately once the
+`DROFUNIT` error was understood, rather than being allowed to finish as a
+third unusable archive.
+
+        check_run (NaN/Inf)   37/37 PASS
+        ice-capped points     -0.6 .. -0.0 Gt
+        all other land        +0.0 Gt
+        lake-bearing       -2470 .. -2324 Gt
+        water residual     1.977% .. 2.191%
+        TLWML max         304.95 .. 308.46 K   (no 2000/2001 step)
+
+Discharge against observed annual means: Mississippi 99%, Congo 106%,
+Amazon 77%. Yangtze (62%) and Yenisei (41%) remain low and want a proper
+GRDC comparison -- **NOT STARTED**.
+
+Remaining residual is lake evaporation: FLake has a fixed depth and no water
+mass budget, so ~2% of land precipitation leaves the system unsourced. With
+`DROFUNIT` corrected, `LWEVAP` recovers **19.6%** of that term (464.6 of
+2,376 Gt in 1994) and costs 3.28% of discharge. The earlier "0.1%, not worth
+it" measurement was taken with the 24x bug in place: extraction is capped by
+floodplain storage, and there was almost none to draw on. v4 and the dams
+campaign both run `LWEVAP=false`; turning it on is a defensible third
+configuration and must not be mixed into either archive mid-stream.
+
+## Dams campaign: year-by-year commissioning 1988-2024 (2026-10-08)
+
+**IN PROGRESS** -- 35/37 segments COMPLETED, zero failures, archived to
+`ec:/pad/wfde5-ecland-dams`. Y2022 running, Y2023/Y2024 queued.
+Identical to v4 in every respect except `namelist_cmf_global_dams.tmpl`
+(`LDAMOUT`, `LDAMYBY`, `LDAMH22=.FALSE.`), so the pair isolates dams.
+
+Dam parameters (`cama_flood/dams/dam_params.csv`) are derived from v4's own
+discharge: Gumbel/L-moments Q100 per cell, `Qf = 0.3*Q100`, `FldVol`/`ConVol`
+split 37/63. 3,982 GRanD dams merge to **3,697 cells** (CaMa allows one dam
+per cell via `I1DAM`), capacity 6,642.7 km3 preserved exactly through the
+merge, 0 duplicate cells. The 3,127 sub-grid dams remain excluded; the 20
+above 1 km3 could be hand-reallocated.
+
+**`LDAMYBY` VERIFIED** by `validation/check_dam_commissioning.py`. This took
+three failed attempts and the failures are the useful part -- each wrong test
+looked convincing:
+
+- `damsto > 0` proves nothing. `CMF_DAMOUT_WATBAL` advances storage for every
+  in-domain dam, `DamStat==-1` included, and init seeds an un-built dam to
+  `rivsto+fldsto`. "Active cells" returns ~3,696 of 3,697 in **every** year
+  whether commissioning works or not.
+- `allocated dams: 108` of 3,697 is not dams being dropped. CaMa logs per MPI
+  region; that is rank 1's share. The 16 regions sum to **exactly 3,697** --
+  a clean partition.
+- "differs from the control at a dam cell" is not regulation. Dams sit on a
+  network, so a cell downstream of a commissioned dam differs without being
+  regulated. This flags 78% of the not-yet-built dams in 1988.
+
+What works is the asymmetry plus a before/after on it. `CMF_CALC_DAMOUT`
+cycles on `DamStat<=0`, so an un-built dam leaves `D2RIVOUT` natural, and you
+cannot get bit-identical annual-mean discharge at a cell whose dam regulates
+it:
+
+        DamYear <= 1988 (2,920 cells)  identical to control:  1988: 0   2020: 0
+        DamYear >  1988 (  670 cells)  identical to control:  1988: 148 2020: 0
+
+All 148 provably-inert 1988 cells (DamYear 1989-2017) differ by 2020, mean
+|dQ| 12.8 m3/s. Dams switch on in their build year and not before.
+
+Two properties of this configuration that belong in the experiment metadata:
+
+- **107 cells carry `DamYear = -99`** (missing in GRanD). `DAMOUT_INIT`'s
+  branch requires `DamYear > 0`, so they fall through to `DamStat=2` and are
+  present for all 37 years. The data chose that, not us.
+- **`ISYYYY` is the simulation START year**, read once in `DAMOUT_INIT`.
+  Commissioning is only correct because the campaign is chained one calendar
+  year per segment; a single multi-year segment would freeze every dam at its
+  start-year status.
+
+CaMa's `log_CaMa.txt-<rank>` and `damtxt-<year>.txt` -- the only direct record
+of `DamStat` -- are written into `ecland_run_model.sh`'s ephemeral run
+directory and deleted on success. They were recoverable here only because a
+segment happened to be running. Worth archiving.
+
 ## Open blockers
 
 - `liaise-ecland`'s own reservoir/dam-module investigation (CaMa-Flood v4.20
@@ -668,8 +781,19 @@ NCERROR in `sucdfres` at init that looks like a physics failure and is not.
 
 ## Immediate next step
 
-**Campaign status (2026-09-28): 1988-2024 COMPLETE -- all 37 years run and
-archived to `ec:/pad/wfde5-ecland`.**
+**Campaign status (2026-10-08).** Four archives exist; only the last two are
+scientifically usable, and the reason is recorded under "The DROFUNIT bug".
+
+        ec:/pad/wfde5-ecland       v1  37/37  discharge 24x too small, and the
+                                           two water leaks still open
+        ec:/pad/wfde5-ecland-v2    37/37  water leaks fixed, discharge still 24x
+                                           too small
+        (v3)                              stopped deliberately mid-flight
+        ec:/pad/wfde5-ecland-v4    37/37  USABLE -- the naturalised control
+        ec:/pad/wfde5-ecland-dams  35/37  USABLE -- year-by-year dams, running
+
+v1 and v2 are kept as comparison controls for the fixes themselves. **Do not
+use either for discharge or for anything downstream of it.**
 
 37 annual segments exist as real, verified output — daily-frequency
 `o_gg`/`o_wat`/`o_efl` plus CaMa-Flood `rivsto`/`fldsto`/`totout`/`rivdph`,
@@ -692,11 +816,15 @@ switch with interannual variability — that recommendation is withdrawn.
 
 Next, in order:
 1. ~~Resubmit 2002-2024~~ — **DONE** 2026-09-28, 23/23 segments COMPLETED.
-   The campaign that this repo exists to produce is finished. What remains is
-   analysis and the dam experiment it was built as a control for.
 2. ~~Decide the 1988-2000 lake question~~ — **DONE**, settled by the A/B
    experiment above: no rerun needed for the water cycle. Document the join
    for lake/energy users instead.
+2a. **Finish the dams campaign** (Y2022-Y2024) and run the full validation
+   sweep over its 37 years, then the dams-vs-v4 comparison this whole chain
+   was built for — **IN PROGRESS**. `LDAMYBY` is verified; the archive itself
+   is **NOT YET VALIDATED** beyond per-segment job success.
+2b. **Archive `log_CaMa.txt-<rank>` and `damtxt-<year>.txt`.** They are the
+   only direct record of `DamStat` and are currently deleted on success.
 3. **Quantify global runoff totals** and the remaining Milestone 6
    validation — still **NOT STARTED**.
 4. **`forcing/validate_wfde5.py` still does not exist.** The grid facts in
