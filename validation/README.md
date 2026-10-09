@@ -33,7 +33,29 @@ workflow step works because the code exists — see `CLAUDE.md`.
   and consumes none here, so a mean that moves is a conservation failure. Only
   watching peaks is how the 24x `DROFUNIT` error survived two full archives.
 
-## Reading the dams archive: two traps
+## The dams archive adds water -- do not use it for discharge
+
+CaMa's dam code path creates roughly **866 km3/yr** (2.3% of global runoff)
+that does not come from the forcing. Established 2026-10-09 on the Zambezi,
+where ecLand runoff is byte-identical between the archives:
+
+        cumulative dams-minus-control at Tete, 2019-2024   467 km3
+        total configured Zambezi reservoir capacity        264 km3
+        annual excess                      70-83 km3/yr, FLAT (not decaying)
+
+A reservoir releases its capacity once and a drawdown decays; a flat excess
+larger than total capacity is a source. Globally the excess is 92%
+concentrated in 20 river-mouth cells, all on heavily dammed rivers, and is
+flat in time while active dams rise 3,203 -> 3,697 -- so it does not scale
+with reservoir operation.
+
+The **v4 naturalised control is unaffected and remains valid.** Its low
+discharge in those basins is largely real: Zambezi-box precipitation falls 50%
+over the record and runoff 85%, so the control's 97% discharge decline tracks
+its own input. Do not read "the control looks too low" as evidence the control
+is broken -- that inference was made here and was wrong.
+
+## Reading the dams archive: two further traps
 
 **`rivdph` is meaningless at dam cells.** CaMa holds reservoir volume as
 `rivsto` in the dam's own cell, so `rivdph = rivsto/(rivlen*rivwth)` reports a

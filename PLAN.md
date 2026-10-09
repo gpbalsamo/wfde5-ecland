@@ -735,10 +735,12 @@ of `DamStat` -- are written into `ecland_run_model.sh`'s ephemeral run
 directory and deleted on success. They were recoverable here only because a
 segment happened to be running. Worth archiving.
 
-## Dams archive: the unexplained 866 km3/yr, and why the comparison is confounded (2026-10-09)
+## Dams archive: CaMa's dam path CREATES WATER -- archive unusable for discharge (2026-10-09)
 
-**The dams archive is COMPLETE and verified but NOT VALIDATED for quantitative
-discharge.** 37/37 segments, every file present and nonzero, ~35.3 GiB each
+**The dams archive is COMPLETE and verified, and must NOT be used for
+discharge or anything downstream of it.** CaMa's dam code path adds roughly
+866 km3/yr (2.3% of global runoff) that does not come from the forcing. The
+v4 naturalised control is unaffected and remains valid. 37/37 segments, every file present and nonzero, ~35.3 GiB each
 (~1.3 TB), `ec:/pad/wfde5-ecland-dams`.
 
 ### What is established
@@ -779,9 +781,32 @@ residual is very likely my accounting, not the model: `totout` is
 sustained -- more than enough to cover it. `pthflw` was not in `CVARSOUT` for
 either archive, so this cannot be closed from existing output.
 
-The **inter-run difference of 866 km3/yr (2.3% of input) is NOT explained**.
-Bifurcation does not account for it: dams has +114 km3/yr *more* bifurcation
-flow, the same sign and an order of magnitude too small.
+The **inter-run difference of 866 km3/yr (2.3% of input) is water the dams run
+creates.** This is now established, not inferred. Bifurcation does not account
+for it (dams has +114 km3/yr *more* bifurcation flow -- same sign, an order of
+magnitude too small), and the Zambezi closes the argument:
+
+        Zambezi box, 1988 -> 2024
+          precipitation (WFDE5)        2,747 -> 1,385 km3/yr   -50%
+          ecLand runoff (both runs)      494 ->    72 km3/yr   -85%
+          v4 discharge at Tete         4,292 ->   138 m3/s     -97%
+          dams discharge at Tete       5,310 -> 2,750 m3/s     -48%
+
+The control is CORRECT: its discharge tracks its input, with the strong
+nonlinear amplification a semi-arid basin gives (a 36-50% precipitation
+decline produces an 85% runoff decline). In 2024 the dams run delivers
+86.9 km3/yr at Tete from a box producing 72.1 km3/yr -- and that box is larger
+than Tete's catchment, so the true exceedance is worse.
+
+Single-year excess could be legitimate reservoir drawdown, so the integral:
+
+        dams-minus-control at Tete, 2019-2024   467 km3 cumulative
+        total configured Zambezi capacity       264 km3  (Kariba 185, Cahora Bassa 63)
+        ratio                                  1.77x
+
+and the annual excess is FLAT (70.9, 70.4, 81.5, 80.5, 81.0, 82.6 km3/yr), not
+decaying. A reservoir releases its capacity once and a drawdown signal decays.
+A flat excess exceeding total capacity, with storage steady, is a source.
 
 It is sharply localised: the **top 20 river-mouth cells carry 92%** of it, all
 on heavily dammed rivers, and the control is implausibly low at exactly those
@@ -806,12 +831,16 @@ clean single-variable experiment at the discharge level**, even though ecLand
 is bit-identical: it conflates
 
 1. reservoir operation -- the intended signal, and
-2. a routing-scheme change at upstream-of-dam cells -- an unintended confound,
+2. a routing-scheme change at upstream-of-dam cells -- an unintended confound.
 
-and the second plausibly explains both the 866 km3/yr and why the control is
-low in flat, heavily dammed basins. Isolating the dam effect needs the same
-kinematic treatment in the control, or a comparison restricted to cells far
-from dams.
+This confound stands on its own merits even once the water-creation bug is
+fixed: isolating the dam effect needs the same kinematic treatment in the
+control, or a comparison restricted to cells far from dams. It is NOT, however,
+the explanation for the 866 km3/yr -- that is a source, per the Zambezi
+integral above. An earlier draft of this section had it the other way round,
+reasoning that the control looked "implausibly low" at the affected mouths.
+Part of that lowness is real drying in the forcing, and that reasoning was
+wrong.
 
 ### One real conservation violation found in CaMa
 
