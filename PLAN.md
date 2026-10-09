@@ -735,6 +735,123 @@ of `DamStat` -- are written into `ecland_run_model.sh`'s ephemeral run
 directory and deleted on success. They were recoverable here only because a
 segment happened to be running. Worth archiving.
 
+## Dams archive: the unexplained 866 km3/yr, and why the comparison is confounded (2026-10-09)
+
+**The dams archive is COMPLETE and verified but NOT VALIDATED for quantitative
+discharge.** 37/37 segments, every file present and nonzero, ~35.3 GiB each
+(~1.3 TB), `ec:/pad/wfde5-ecland-dams`.
+
+### What is established
+
+- `LDAMYBY` commissions dams in their build year -- `validation/check_dam_commissioning.py`, PASS.
+- The coupling is genuinely one-way: ecLand `restartout.nc`, `o_gg.nc` and
+  `o_wat.nc` are **byte-identical** between the dams archive and v4 for 1988,
+  2000, 2012 and 2024. v4's validated ecLand budgets therefore apply to the
+  dams archive by construction, and only `cmf/` + `restartout_cmf.nc` carry
+  the experiment (~30 GiB/year of the dams archive duplicates v4 exactly).
+- CaMa state does differ, as it must: 172,591 `rivsto` cells.
+- `rivdph` differences up to 468 m are **100% confined to dam cells** at every
+  threshold tested (10/50/100/200/400 m), with zero spread into the network.
+  Control depth at those same cells peaks at 10.7 m. CaMa holds reservoir
+  volume as `rivsto` in the dam's own cell, so `rivdph` is a diagnostic that
+  does not apply there. Not an instability -- and easy to mistake for the
+  run-of-river instability under "Open blockers".
+- Peak attenuation -5.5% and Q10 +86% (median over 19 gauges, 2010-2024):
+  reservoirs behave as reservoirs.
+
+### The unexplained difference
+
+From **byte-identical runoff input**, the dams run carries ~866 km3/yr more
+water than the control:
+
+        In (ecLand runoff, 2020)                 38,261 km3
+        reaching CaMa through inpmat             34,871 km3   (remap loss 3,390, 8.86%)
+
+        run    Out(totout, mouths)  Out(inland)     dS    imbalance vs CaMa input
+        v4              32,866           625      -515        +1,894 km3 (5.0%)
+        dams            33,503           677      -338        +1,028 km3 (2.7%)
+
+**Both runs LOSE water in this accounting; neither creates it.** The absolute
+residual is very likely my accounting, not the model: `totout` is
+`rivout+fldout` and **deliberately excludes bifurcation flow**
+(`cmf_calc_stonxt_mod.F90:77` -- adding `pthout` was "a bug before v4.2"),
+`LPTHOUT=.TRUE.`, and year-end `pthflw_pre` sums to ~4,300-4,500 km3/yr if
+sustained -- more than enough to cover it. `pthflw` was not in `CVARSOUT` for
+either archive, so this cannot be closed from existing output.
+
+The **inter-run difference of 866 km3/yr (2.3% of input) is NOT explained**.
+Bifurcation does not account for it: dams has +114 km3/yr *more* bifurcation
+flow, the same sign and an order of magnitude too small.
+
+It is sharply localised: the **top 20 river-mouth cells carry 92%** of it, all
+on heavily dammed rivers, and the control is implausibly low at exactly those
+mouths --
+
+        Dnieper  (46.62N  32.38E)  ctl    314 -> dams  1,132   (obs ~1,670)
+        Don      (47.12N  39.12E)  ctl    116 -> dams    462
+        Zambezi  (-18.62N 36.38E)  ctl  1,770 -> dams  3,949   (obs ~3,400)
+        Plata    (-34.12N -58.38E) ctl 11,031 -> dams 15,048
+
+and the excess is **flat in time** (+628/+608/+636 km3/yr for 1995/2010/2020)
+while active dams rise 3,203 -> 3,697, so it does not scale with reservoir
+operation.
+
+### The confound, which stands regardless
+
+`CMF_CALC_DAMOUT` calls `UPDATE_INFLOW`, which replaces the local-inertial
+outflow with a **kinematic-wave** estimate at every cell whose downstream is a
+dam (`I1DAM==10`), explicitly "to suppress storage buffer effect (Shin et al.
+2019)". The control never gets that treatment. So **dams-vs-control is not a
+clean single-variable experiment at the discharge level**, even though ecLand
+is bit-identical: it conflates
+
+1. reservoir operation -- the intended signal, and
+2. a routing-scheme change at upstream-of-dam cells -- an unintended confound,
+
+and the second plausibly explains both the 866 km3/yr and why the control is
+low in flat, heavily dammed basins. Isolating the dam effect needs the same
+kinematic treatment in the control, or a comparison restricted to cells far
+from dams.
+
+### One real conservation violation found in CaMa
+
+`cmf_ctrl_damout_mod.F90:266-269` sets `P2RIVSTO = ConVol` where capacity
+exceeds natural storage on a **cold start**, ungated by `LiVnorm` (the restart
+branch at 274-284 *is* gated, default `.FALSE.`). That created ~2,800 km3 once,
+in 1988. One-off, stays in storage, does not drive the gauge signal -- but it
+is water from nothing and belongs in an upstream report.
+
+### To close it
+
+A short diagnostic year, both configurations, with `pthflw` and `damsto` in
+`CVARSOUT`, which makes the balance closable instead of inferred. Needs a
+SLURM launch -- **approval required, NOT STARTED**.
+
+### Process notes
+
+Four of my own measurement errors shaped intermediate conclusions and are
+recorded so the same ground is not re-walked:
+
+- `nextx < 0` as a river-mouth mask swept in all 784,417 non-land cells
+  alongside the 18,481 real mouths (`-9` ocean, `-10` inland, `-9999` not land).
+- `|Qs| + |Qsb|` as total runoff gave 66,000 km3/yr against a true ~38,000.
+  The convention is `-(Qs+Qsb)`; `Qs>=0` and `Qsb<=0`, so abs-then-add
+  over-counts by `2*Qs`. This is exactly the error `docs/cama_interface.md`
+  exists to prevent.
+- A driver script re-snapped gauge cells per invocation, so two year batches
+  read **different cells** for Orinoco and Amur; Amur's resulting +5.75% was
+  briefly reported as a conservation failure.
+  `validation/compare_discharge.py` now **hard-fails** on inconsistent cells.
+- `damsto` was reported as absent from the CaMa restart; it is present. The
+  diff that "showed" it missing skipped variables absent from the control.
+
+Also: **`cama_flood/validate_remapping.py` does not exist.** CLAUDE.md
+specifies it as the hard water-conservation gate for every ecLand->CaMa remap,
+with a nonzero exit above tolerance. The remap has therefore never been
+conservation-checked in this project, and it is the tool that would have given
+the 8.86% remap loss immediately instead of a hand computation from
+`inpmat.nc`. **NOT STARTED.**
+
 ## Open blockers
 
 - `liaise-ecland`'s own reservoir/dam-module investigation (CaMa-Flood v4.20
