@@ -735,13 +735,147 @@ of `DamStat` -- are written into `ecland_run_model.sh`'s ephemeral run
 directory and deleted on success. They were recoverable here only because a
 segment happened to be running. Worth archiving.
 
-## Dams archive: CaMa's dam path CREATES WATER -- archive unusable for discharge (2026-10-09)
+## ROOT CAUSE: CaMa-Flood was cold-started every year, in BOTH campaigns (2026-10-10)
+
+**This supersedes the section below it.** The symptom recorded there -- the
+dams archive carrying ~866 km3/yr that does not come from the forcing -- is
+real. The cause attributed to it was wrong. There is no bug in CaMa's dam
+physics. The bug is in this repository's own run driver.
+
+`run/run_ecland.sh` never staged a CaMa-Flood restart, and the CaMa namelist
+templates hardcode `LRESTART=false`. ecLand chained correctly the whole time
+via `RESTART_FROM` -> `soilinit`, so **every one of the 37 segments of both
+campaigns restarted CaMa from an EMPTY river network on 1 January**, while
+every other signal said the run was healthy: exit 0, all output present and
+nonzero, land-side water and energy budgets closed, ecLand restart continuity
+verified by `VERIFY_RESTART`. Confirmed three independent ways:
+
+1. **The run's own log.** `log_CaMa.txt-1` from the real 2022 dams segment:
+   `LRESTART  F`. The rendered `input_cmf.nam` from that run: `LRESTART=false`,
+   `CRESTSTO=""`.
+2. **The source.** `run_ecland.sh` has no CaMa-restart staging at all;
+   `ecland_run_model.sh` links `restartin_cmf.nc` only under its own `-R`
+   route, which `run_ecland.sh` deliberately does not use. With
+   `LRESTART=.FALSE.`, `CMF_RESTART_INIT` sets `P2RIVSTO=P2FLDSTO=0`
+   (`cmf_ctrl_restart_mod.F90:100-101`).
+3. **The archived output.** On 1 Jan 2000 the Amazon discharges **-369 m3/s**,
+   the Congo **7 m3/s** (annual median 39,324), the Mississippi **exactly 0 for
+   nine days**; the Amazon then climbs to 50,617 by day 30 and 148,247 by day
+   90. `validation/check_cmf_restart_continuity.py --gauge-series` flags
+   **38 of 38** gauge-years, exit 1.
+
+### Why this produced exactly the numbers that were measured
+
+With an annual reset, each year's budget is `Out = In + S_start - S_end`, so
+whatever storage stands at 31 December is simply discarded.
+
+| | measured independently | predicted by the annual reset |
+|---|---|---|
+| v4 deficit | +1,894 km3/yr | `S_end(v4)` = 2,041-2,358 km3 |
+| dams deficit | +1,028 km3/yr | `S_end(dams) - ConVol` = 5,331 - 4,185 = 1,146 km3 |
+| dams minus control | +866 km3/yr | `ConVol - S_end(d) + S_end(v4)` = +895 km3/yr |
+
+The extra term in the dams run is genuine water creation, and it is the
+`LDAMOUT` cold-start branch: `DAMOUT_INIT` with `.not. LRESTART` sets
+`P2DAMSTO=ConVol` **and `P2RIVSTO=ConVol`** for every activated dam
+(`cmf_ctrl_damout_mod.F90:266-269`, ungated by `LiVnorm`). That re-creates the
+whole conservative volume of every reservoir **every 1 January**: 3,425 km3 in
+1988 rising to 4,185 km3 in 2024 (3,027 -> 3,697 activated dams). Flat in time,
+concentrated at dammed rivers, not scaling with reservoir operation -- which is
+exactly the signature that was measured and could not be explained.
+
+The Zambezi case resolves the same way: Kariba + Cahora Bassa hold 264 km3
+total, ~166 km3 of it `ConVol`, re-created annually -- against a measured flat
+excess of 70-83 km3/yr at Tete and a 467 km3 cumulative excess over 2019-2024.
+
+`LiVnorm=.TRUE.` in `namelist_cmf_global_dams.tmpl` is **not** the culprit: it
+gates only the *restart* branch (`:274-284`), which never executed.
+
+### What this means for the two archives
+
+- **Neither archive's discharge is usable as it stands.** Both discard
+  ~2,100 km3/yr of river storage (5.5% of global runoff) at every segment
+  boundary, and the early months of every year are spin-up from an empty
+  network rather than simulation.
+- **The dams archive is worse**, additionally creating 3,425-4,185 km3/yr.
+- **The ecLand side of both archives is unaffected and remains valid** --
+  one-way coupling, `LECMF1WAY=.TRUE.`, and ecLand's own restart chaining was
+  always correct and verified. All land-surface results, budgets and the
+  Milestone 1-3 conclusions stand.
+- v4's interannual *signal* is still real where it was checked -- the Zambezi
+  tracking its own forcing (-97% discharge on -50% precipitation, -85% runoff)
+  is a property of the forcing, not of the initial state.
+
+### The fix (committed 2026-10-10, NOT YET RUN)
+
+- `run/run_ecland.sh`: new `CMF_RESTART_FROM`. Patches the rendered CaMa
+  namelist to `LRESTART=.TRUE.` and `CRESTSTO=<abs path>`, which is all CaMa
+  needs (`READ_REST_CDF` does `CFILE=TRIM(CRESTSTO)`). Guards that a
+  `LDAMOUT=.TRUE.` run is not chained from a control restart, which has no
+  `damsto` and would die in `NF90_INQ_VARID`.
+- `run/run_ecland.sh`: `VERIFY_CMF_RESTART` compares the first CaMa output
+  day's global `rivsto` against the staged restart's and fails the run if they
+  differ by more than a factor two. The old `VERIFY_RESTART` passes happily
+  while CaMa cold-starts -- that is precisely how this survived a whole
+  campaign.
+- `run/submit_campaign.py`: `--cmf-restart-from`, chains
+  `restartout_cmf.nc` per segment, and the dry-run line now prints **both**
+  restarts (`ecland=... cama=...`) because a campaign that chains one and not
+  the other looks entirely healthy.
+- `validation/check_cmf_restart_continuity.py`: new. Rigorous mode (restart vs
+  first output day) and a cheap gauge-series screen. **Run against the real
+  archive: FAIL, 38/38 gauge-years, exit 1.**
+- All three `namelist_cmf_global*.tmpl` headers now say `LRESTART` is patched
+  at render time and the literal value is not what ran.
+
+Verified so far: `bash -n`, `compileall`, `--help`, the namelist `sed` tested
+against the real `input_cmf.nam` (patches `LRESTART`, leaves `LRESTCDF`
+untouched, `LDAMOUT` detection correct both ways), restart files confirmed to
+contain every variable `READ_REST_CDF` requires (`rivsto`, `fldsto`,
+`rivout_pre`, `fldout_pre`, `rivdph_pre`, `fldsto_pre`, `pthflw_pre`, plus
+`damsto` in the dams archive). **The fix has NOT been exercised in a real
+coupled run, and no re-run has been launched.** Status: **NOT VERIFIED.**
+
+### Required next step -- needs a decision
+
+Both campaigns need re-running with the restart chained (~28 h each, as
+before). That is the user's call; nothing has been submitted. A cheaper
+staged check first: re-run two consecutive years of v4, confirm
+`VERIFY_CMF_RESTART` passes and `check_cmf_restart_continuity.py` goes to
+PASS, before committing 74 h of compute.
+
+Note `run/configs/campaign/Y*.env` as committed carry no `CMF_RESTART_FROM`;
+they are rewritten by `submit_campaign.py` at submission, so they will pick it
+up automatically.
+
+### What was wrong in my own earlier reasoning, and why
+
+Recorded because the failure was one of method, not of arithmetic. I tested
+whether CaMa's dam *physics* conserved water -- `UPDATE_INFLOW`, the operating
+rule, the flow limiter, `CMF_DAMOUT_WATBAL` -- found them all conservative,
+and then concluded the leak must be in the dam path anyway, because the dam
+path was the only thing that differed between the experiments. It was not: the
+*run configuration* differed from what I believed it to be. I never checked
+`LRESTART` in a rendered namelist or a run log, having assumed that because
+ecLand's restart chaining was carefully built and verified, CaMa's existed too.
+The one-line check that would have settled it on day one -- `grep LRESTART` in
+the real `input_cmf.nam` sitting in the scratch directory the whole time --
+came only after reading the dam module end to end twice.
+
+## Dams archive: the earlier, SUPERSEDED diagnosis (2026-10-09)
+
+Kept for the record. The measurements here are sound and were what led to the
+root cause above; the attribution to "CaMa's dam path" is **withdrawn**.
+
 
 **The dams archive is COMPLETE and verified, and must NOT be used for
 discharge or anything downstream of it.** CaMa's dam code path adds roughly
-866 km3/yr (2.3% of global runoff) that does not come from the forcing. The
-v4 naturalised control is unaffected and remains valid. 37/37 segments, every file present and nonzero, ~35.3 GiB each
-(~1.3 TB), `ec:/pad/wfde5-ecland-dams`.
+866 km3/yr (2.3% of global runoff) that does not come from the forcing.
+~~The v4 naturalised control is unaffected and remains valid.~~ **WITHDRAWN
+2026-10-10: v4's discharge is affected too** -- it discards ~2,100 km3/yr at
+every annual segment boundary. Only v4's *ecLand* side is unaffected. See the
+root-cause section above. 37/37 segments, every file present and nonzero,
+~35.3 GiB each (~1.3 TB), `ec:/pad/wfde5-ecland-dams`.
 
 ### What is established
 
@@ -935,8 +1069,11 @@ scientifically usable, and the reason is recorded under "The DROFUNIT bug".
         ec:/pad/wfde5-ecland-v2    37/37  water leaks fixed, discharge still 24x
                                            too small
         (v3)                              stopped deliberately mid-flight
-        ec:/pad/wfde5-ecland-v4    37/37  USABLE -- the naturalised control
-        ec:/pad/wfde5-ecland-dams  35/37  USABLE -- year-by-year dams, running
+        ec:/pad/wfde5-ecland-v4    37/37  ecLand USABLE; DISCHARGE NOT usable
+                                           (annual CaMa cold start, -2,100 km3/yr)
+        ec:/pad/wfde5-ecland-dams  37/37  ecLand USABLE (byte-identical to v4);
+                                           DISCHARGE NOT usable (annual cold start
+                                           PLUS 3,425-4,185 km3/yr created)
 
 v1 and v2 are kept as comparison controls for the fixes themselves. **Do not
 use either for discharge or for anything downstream of it.**
@@ -947,6 +1084,11 @@ each chained from the previous year's `restartout.nc` with continuity
 verified rather than assumed (`VERIFY_RESTART`, which compares the model's
 first output against the previous restart AND against climatology, and
 requires the chain distance to be under 1% of the cold-start distance).
+**That applies to ecLand only.** CaMa-Flood was never restart-chained in any
+of these archives and cold-started at every segment boundary -- see "ROOT
+CAUSE: CaMa-Flood was cold-started every year" above. `VERIFY_RESTART` passes
+regardless, which is why it went unnoticed; `VERIFY_CMF_RESTART` now covers
+the CaMa side.
 
 2001 is the only segment produced with `TMNW_NDG_TIMESCL = 1.0E30`, so there
 is a real physics discontinuity at the 2000/2001 join. The A/B experiment
