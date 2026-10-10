@@ -28,32 +28,74 @@ workflow step works because the code exists — see `CLAUDE.md`.
   `--snap-from`** when comparing experiments: if each run snaps independently
   they can select different cells, and that shows up as a peak-attenuation
   signal that is really a cell mismatch.
+- `check_cmf_restart_continuity.py` — detects CaMa-Flood's annual cold-start
+  discontinuity. **VERIFIED** 2026-10-10: FAIL, 38/38 gauge-years, exit 1
+  against the real v4 and dams archives. Rigorous mode compares a staged
+  restart's global `rivsto` against the first output day; the cheap mode tests
+  1 January discharge against the gauge's own annual median. Read its
+  docstring on why "days to recover" is *not* the criterion — that column is
+  confounded by seasonality and a long delay on the Lena is the real
+  hydrograph.
 - `compare_discharge.py` — dams-vs-control at the gauges. Its load-bearing
   check is the **annual mean**, not the peak: a reservoir redistributes water
   and consumes none here, so a mean that moves is a conservation failure. Only
   watching peaks is how the 24x `DROFUNIT` error survived two full archives.
 
-## The dams archive adds water -- do not use it for discharge
+## NEITHER archive's discharge is usable: CaMa cold-started every year
 
-CaMa's dam code path creates roughly **866 km3/yr** (2.3% of global runoff)
-that does not come from the forcing. Established 2026-10-09 on the Zambezi,
-where ecLand runoff is byte-identical between the archives:
+**Root cause found 2026-10-10. The previous version of this section blamed
+CaMa's dam code path; that attribution is withdrawn.** CaMa's dam physics is
+conservative. What was wrong is this repository's own run driver:
+`run/run_ecland.sh` never staged a CaMa-Flood restart and the CaMa namelist
+templates hardcode `LRESTART=false`, so **every annual segment of both
+campaigns restarted CaMa from an empty river network**, while ecLand chained
+correctly throughout.
+
+Proof, in the archived output itself — 1 January 2000:
+
+        Amazon        -369 m3/s   (annual median 140,553)
+        Congo            7 m3/s   (annual median  39,324)
+        Mississippi      0 m3/s   for nine consecutive days
+
+Then the Amazon reaches 50,617 by day 30 and 148,247 by day 90. Confirmed
+independently by the run's own `log_CaMa.txt-1` (`LRESTART  F`) and its
+rendered `input_cmf.nam` (`LRESTART=false`, `CRESTSTO=""`).
+
+Two consequences:
+
+- **Both archives** discard the ~2,100 km3 of global river and floodplain
+  storage standing at 31 December — 5.5% of global runoff, every year. This is
+  exactly the control's previously unexplained 1,894 km3/yr deficit.
+- **The dams archive additionally creates water.** `DAMOUT_INIT`'s
+  `.not. LRESTART` branch sets `P2DAMSTO=ConVol` *and* `P2RIVSTO=ConVol` for
+  every activated dam (`cmf_ctrl_damout_mod.F90:266-269`, ungated by
+  `LiVnorm`), re-creating every reservoir's conservative volume each
+  1 January: 3,425 km3 in 1988 rising to 4,185 km3 in 2024. Flat in time,
+  concentrated on dammed rivers, not scaling with reservoir operation — the
+  signature that was measured and could not be explained.
+
+So: use neither archive for discharge, and do not treat v4 as the clean
+reference it was described as here until it is re-run with
+`CMF_RESTART_FROM` set.
+
+**What does still hold.** The ecLand side of both archives is unaffected and
+valid — the coupling is one-way and ecLand's own restart chaining was always
+correct and verified. And v4's interannual *signal* is real where it was
+checked: Zambezi-box precipitation falls 50% over the record and runoff 85%, so
+the control's 97% discharge decline tracks its own input. Do not read "the
+control looks too low" as evidence the control is broken — that inference was
+made here and was wrong, twice.
+
+The earlier Zambezi arithmetic that opened this investigation is still sound,
+and is what led to the root cause:
 
         cumulative dams-minus-control at Tete, 2019-2024   467 km3
         total configured Zambezi reservoir capacity        264 km3
         annual excess                      70-83 km3/yr, FLAT (not decaying)
 
 A reservoir releases its capacity once and a drawdown decays; a flat excess
-larger than total capacity is a source. Globally the excess is 92%
-concentrated in 20 river-mouth cells, all on heavily dammed rivers, and is
-flat in time while active dams rise 3,203 -> 3,697 -- so it does not scale
-with reservoir operation.
-
-The **v4 naturalised control is unaffected and remains valid.** Its low
-discharge in those basins is largely real: Zambezi-box precipitation falls 50%
-over the record and runoff 85%, so the control's 97% discharge decline tracks
-its own input. Do not read "the control looks too low" as evidence the control
-is broken -- that inference was made here and was wrong.
+larger than total capacity is a source. It just was not the source that was
+assumed.
 
 ## Reading the dams archive: two further traps
 
