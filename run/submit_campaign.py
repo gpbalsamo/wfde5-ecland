@@ -51,6 +51,12 @@ def main():
                     help="24 = daily (default). 1 = hourly, which REQUIRES --mode monthly.")
     ap.add_argument("--restart-from", default="",
                     help="restartout.nc seeding the first segment; omit to cold-start")
+    # CaMa's restart is a SEPARATE file from ecLand's and was never chained
+    # until 2026-10-10, so every segment cold-started CaMa with an empty river
+    # network. See run/run_ecland.sh's CMF_RESTART_FROM block.
+    ap.add_argument("--cmf-restart-from", default="",
+                    help="restartout_cmf.nc seeding the first segment; omit to "
+                         "cold-start CaMa (correct only for a campaign's true start)")
     ap.add_argument("--ecfs-dir", default="ec:/pad/wfde5-ecland")
     # Without this a dams campaign silently uses the no-dams CaMa template and
     # becomes a second control -- 28 hours of compute producing the wrong
@@ -83,6 +89,8 @@ def main():
     # fragile, which is the kind of asymmetry that fails once at 03:00 and
     # takes the other 22 chained segments with it.
     prev_restart = str(Path(a.restart_from).resolve()) if a.restart_from else None
+    prev_cmf_restart = (str(Path(a.cmf_restart_from).resolve())
+                        if a.cmf_restart_from else None)
     dep, jobs = None, []
     for tag, start, nhours, year in segments(a.start_year, a.end_year, a.mode):
         forcing = repo / "forcing" / "WFDE5_CRU_GPCC" / f"WFDE5_CRU_GPCC_{year}.nc"
@@ -107,6 +115,8 @@ def main():
             lines.append(f"NAMELIST_CMF_TEMPLATE={a.cmf_template}")
         if prev_restart:
             lines.append(f"RESTART_FROM={prev_restart}")
+        if prev_cmf_restart:
+            lines.append(f"CMF_RESTART_FROM={prev_cmf_restart}")
         # Only write when actually submitting. --dry-run used to write every
         # config as a side effect, which clobbered the config of an ALREADY
         # RUNNING segment (observed 2026-09-27 against job 31744027): a dry run
@@ -129,13 +139,18 @@ def main():
             cmd.append(f"--dependency=afterok:{_d}")
         cmd += ["run/run_ecland_cmf.slurm", str(cfg.relative_to(repo))]
         if a.dry_run:
-            print(f"  {tag:10s} {nhours:>5}h  restart_from={'(cold)' if not prev_restart else Path(prev_restart).parent.name}")
+            # Print BOTH restarts: a campaign that chains ecLand while
+            # cold-starting CaMa looks completely healthy otherwise.
+            print(f"  {tag:10s} {nhours:>5}h  "
+                  f"ecland={'(cold)' if not prev_restart else Path(prev_restart).parent.name}"
+                  f"  cama={'(COLD)' if not prev_cmf_restart else Path(prev_cmf_restart).parent.name}")
         else:
             dep = subprocess.run(cmd, cwd=repo, capture_output=True, text=True,
                                  check=True).stdout.strip()
             jobs.append((tag, dep))
             print(f"  {tag:10s} {nhours:>5}h  job {dep}" + (f"  after {jobs[-2][1]}" if len(jobs) > 1 else "  (head)"))
         prev_restart = f"{repo}/run/output/{sta}/restartout.nc"
+        prev_cmf_restart = f"{repo}/run/output/{sta}/restartout_cmf.nc"
 
     if not a.dry_run:
         print(f"\nsubmitted {len(jobs)} chained segments; first={jobs[0][1]} last={jobs[-1][1]}")

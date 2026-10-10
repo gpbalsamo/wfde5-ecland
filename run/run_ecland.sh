@@ -163,6 +163,43 @@ if [[ -n "$RESTART_FROM" ]]; then
 fi
 VERIFY_RESTART=${VERIFY_RESTART:-true}
 
+# CaMa-Flood restart chaining -- a SEPARATE mechanism from ecLand's above, and
+# it was MISSING entirely until 2026-10-10. The CaMa namelist templates hardcode
+# LRESTART=false, and nothing here ever staged a CaMa restart, so EVERY segment
+# of the 37-year campaign cold-started CaMa with an empty river network while
+# ecLand itself chained correctly. The failure mode is silent -- exit 0, output
+# present, budgets closed on the ecLand side -- and it cost two wrong diagnoses
+# before it was found. Observable signature in the archived output: on 1 Jan the
+# Amazon discharges -369 m3/s, the Congo 7 m3/s, the Mississippi exactly 0 for
+# nine days, then the Amazon climbs to 50,617 by day 30 and 148,247 by day 90.
+#
+# Two consequences, both quantified in PLAN.md:
+#   * the whole network is re-filled from runoff over ~2-3 months each year, and
+#     the ~2,100 km3 of global river+flood storage standing at 31 Dec is simply
+#     discarded -- that IS the control's apparent 1,894 km3/yr "lost water";
+#   * with LDAMOUT, DAMOUT_INIT's `.not. LRESTART` branch additionally sets
+#     P2RIVSTO = ConVol for every activated dam (cmf_ctrl_damout_mod.F90:266-269,
+#     ungated by LiVnorm), CREATING 3,425-4,185 km3 of reservoir water every
+#     1 January.
+#
+# CaMa reads its restart from CRESTSTO directly (cmf_ctrl_restart_mod.F90,
+# READ_REST_CDF: CFILE=TRIM(CRESTSTO)), so pointing that at an absolute path is
+# all that is needed -- deliberately NOT ecland_run_model.sh's -R/RESTARTCMF
+# route, which also forces ecLand down the restartin.nc path that the
+# RESTART_FROM mechanism above exists to avoid.
+#
+# Leave CMF_RESTART_FROM empty to cold-start CaMa. That is correct for the FIRST
+# segment of a campaign only: with LDAMOUT it is also how reservoirs get their
+# initial filling (LiVnorm), which is intended once and a water source every
+# other time.
+CMF_RESTART_FROM=${CMF_RESTART_FROM:-}
+if [[ -n "$CMF_RESTART_FROM" ]]; then
+    [[ -f "$CMF_RESTART_FROM" ]] || {
+        echo "ERROR: CMF_RESTART_FROM not found: $CMF_RESTART_FROM" >&2; exit 1; }
+    CMF_RESTART_FROM=$(cd "$(dirname "$CMF_RESTART_FROM")" && pwd)/$(basename "$CMF_RESTART_FROM")
+fi
+VERIFY_CMF_RESTART=${VERIFY_CMF_RESTART:-true}
+
 # ECFS archive target, e.g. ec:/pad/wfde5-ecland. When set, the run's output
 # is copied there after a successful run and verified with els before the
 # local copy is considered expendable. PERM is quota-limited (10 T, 5.82 T
@@ -377,6 +414,39 @@ if [[ "$RUN_CMF" == "true" ]]; then
         -e "s|__CAMA_INPMAT__|${CMF_WEIGHTS_DIR}/inpmat.nc|" \
         -e "s|__CAMA_OUTDIR__|${CMF_OUTDIR}|" \
         "$RENDERED_NAMELIST_CMF"
+    # --- CaMa-Flood restart: patch LRESTART/CRESTSTO (see CMF_RESTART_FROM
+    # above for why this is here at all, and what it cost to find).
+    if [[ -n "$CMF_RESTART_FROM" ]]; then
+        # CaMa with LDAMOUT reads 'damsto' from the restart unconditionally
+        # (cmf_ctrl_restart_mod.F90 READ_REST_CDF). The naturalised control's
+        # restart has no such variable, so chaining a dams run from a control
+        # restart dies in NF90_INQ_VARID with an opaque NetCDF error -- check
+        # it here instead, where the message can say what is actually wrong.
+        if grep -qiE '^\s*LDAMOUT\s*=\s*\.?(TRUE|T)\.?' "$RENDERED_NAMELIST_CMF"; then
+            python3 - "$CMF_RESTART_FROM" <<'PYEOF' || exit 1
+import sys
+import netCDF4 as nc
+p = sys.argv[1]
+with nc.Dataset(p) as d:
+    if "damsto" not in d.variables:
+        sys.exit(f"ERROR: LDAMOUT=.TRUE. but {p} has no 'damsto' -- this is a "
+                 "naturalised-control restart. Chain a dams run from a dams restart.")
+print(f"  CaMa restart carries damsto: {p}")
+PYEOF
+        fi
+        sed -i \
+            -e "s|^\s*LRESTART\s*=.*|LRESTART=.TRUE.          ! patched by run_ecland.sh (CMF_RESTART_FROM)|" \
+            -e "s|^\s*CRESTSTO\s*=.*|CRESTSTO=\"${CMF_RESTART_FROM}\"|" \
+            "$RENDERED_NAMELIST_CMF"
+        grep -qE '^LRESTART=\.TRUE\.' "$RENDERED_NAMELIST_CMF" || {
+            echo "ERROR: failed to patch LRESTART in $RENDERED_NAMELIST_CMF" >&2; exit 1; }
+        grep -qF "CRESTSTO=\"${CMF_RESTART_FROM}\"" "$RENDERED_NAMELIST_CMF" || {
+            echo "ERROR: failed to patch CRESTSTO in $RENDERED_NAMELIST_CMF" >&2; exit 1; }
+        echo "== CaMa restart chaining: CRESTSTO <- ${CMF_RESTART_FROM} =="
+    else
+        echo "== CaMa COLD START (CMF_RESTART_FROM unset) -- correct only for a"
+        echo "   campaign's first segment; see CMF_RESTART_FROM in this script =="
+    fi
     echo "Rendered: $RENDERED_NAMELIST_CMF"
     grep -E "SYEAR|EYEAR|DT |IFRQ_INP|CMPIREGNC" "$RENDERED_NAMELIST_CMF" || true
     RUN_MODEL_ARGS+=(-c "$RENDERED_NAMELIST_CMF")
@@ -456,6 +526,49 @@ if C is not None and var in C.variables:
         sys.exit(0)
 print(msg)
 print("  WARNING: no climatology reference available; continuity not proven")
+PYEOF
+fi
+
+# --- verify CaMa's river storage was actually carried ----------------------
+# The ecLand check above passes happily while CaMa cold-starts, which is
+# exactly how the missing CaMa restart went unnoticed for a whole 37-year
+# campaign. Check CaMa separately, against its own first output day: a
+# continued run starts the year holding the previous 31 Dec storage
+# (~2,100 km3 globally), a cold-started one starts empty and has only
+# whatever one day of runoff put in.
+if [[ "$RUN_CMF" == "true" && -n "$CMF_RESTART_FROM" && "$VERIFY_CMF_RESTART" == "true" ]]; then
+    echo "== Verifying CaMa-Flood restart continuity =="
+    python3 - "$CMF_RESTART_FROM" "${CMF_OUTDIR}/o_rivsto.nc" <<'PYEOF'
+import sys
+import numpy as np
+from netCDF4 import Dataset
+
+prev, out = sys.argv[1], sys.argv[2]
+
+
+def total(a):
+    a = np.ma.masked_invalid(np.ma.masked_greater(np.asarray(a, dtype="f8"), 1e19))
+    return float(a.sum()) * 1e-9          # km3
+
+
+with Dataset(prev) as A:
+    staged = total(A["rivsto"][:])
+with Dataset(out) as B:
+    first = total(B["rivsto"][0])
+
+print(f"  staged restart rivsto   = {staged:10.1f} km3")
+print(f"  first output day rivsto = {first:10.1f} km3")
+if staged <= 0:
+    sys.exit("ERROR: staged CaMa restart holds no river storage")
+ratio = first / staged
+print(f"  ratio = {ratio:.3f}")
+# One day of global runoff is ~100 km3, a few percent of the standing storage,
+# so a genuine continuation cannot move the total by anything like a factor 2.
+if not 0.5 < ratio < 2.0:
+    sys.exit("ERROR: CaMa's first output day does not continue the staged "
+             "restart -- the run almost certainly COLD-STARTED CaMa "
+             "(check LRESTART/CRESTSTO in the rendered CaMa namelist)")
+print("  OK: CaMa river storage was carried from the previous segment")
 PYEOF
 fi
 

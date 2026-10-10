@@ -51,6 +51,15 @@ LGDWDLY=false
 LSLPMIX=.FALSE.
 LMEANSL=.FALSE.
 LSEALEV=.FALSE.
+! LRESTART below is the COLD-START default and is PATCHED TO .TRUE. by
+! run/run_ecland.sh whenever CMF_RESTART_FROM is set (which submit_campaign.py
+! does for every segment after the first). Do not read the literal value here
+! as what a campaign segment actually ran with -- check the rendered namelist,
+! or the "LRESTART" line in the run's own log_CaMa.txt-<rank>.
+!
+! This file hardcoded LRESTART=false and nothing staged a CaMa restart until
+! 2026-10-10, so all 37 segments of both campaigns cold-started CaMa with an
+! empty river network while ecLand chained correctly. See PLAN.md.
 LRESTART=false
 LSTOONLY=false
 LOUTPUT=.TRUE.
