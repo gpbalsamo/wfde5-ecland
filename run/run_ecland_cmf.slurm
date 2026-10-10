@@ -83,8 +83,16 @@ export ECLAND_NPROMA=${ECLAND_NPROMA:-0}
 # Multi-year chaining + archive; see run_ecland.sh for why RESTART_FROM is
 # staged AS soilinit and why the result is verified rather than trusted.
 [[ -n "${RESTART_FROM:-}" ]] && export RESTART_FROM
+# CaMa's restart is a SEPARATE file from ecLand's and must be exported here
+# too. Missing this is the same class of omission as ECLAND_EXE /
+# NAMELIST_CMF_TEMPLATE below: the config sets it, `source` makes it a shell
+# variable, and without an explicit export it never reaches run_ecland.sh --
+# which would then cold-start CaMa while reporting success, i.e. exactly the
+# bug CMF_RESTART_FROM exists to fix.
+[[ -n "${CMF_RESTART_FROM:-}" ]] && export CMF_RESTART_FROM
 [[ -n "${ECFS_DIR:-}" ]] && export ECFS_DIR
 export VERIFY_RESTART=${VERIFY_RESTART:-true}
+export VERIFY_CMF_RESTART=${VERIFY_CMF_RESTART:-true}
 export WRITE_EFL=${WRITE_EFL:-true}
 # Let a config select a different executable (e.g. a -O0 -g -init=snan build
 # for debugging). NOT exporting this silently sent a snan diagnostic run
