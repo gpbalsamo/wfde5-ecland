@@ -828,21 +828,85 @@ gates only the *restart* branch (`:274-284`), which never executed.
 - All three `namelist_cmf_global*.tmpl` headers now say `LRESTART` is patched
   at render time and the literal value is not what ran.
 
-Verified so far: `bash -n`, `compileall`, `--help`, the namelist `sed` tested
+### Staged two-year check: the fix WORKS (2026-10-10, jobs 37007228/37007229)
+
+**VERIFIED in a real coupled run.** Two chained v4-configuration segments,
+1988 (CaMa cold start, correct for a first segment) then 1989 (chained). Both
+COMPLETED, exit 0:0, ~57 min each. Distinct `STA` and no `ECFS_DIR`, so the
+real archives could not be touched.
+
+        == CaMa restart chaining: CRESTSTO <- .../CMFRST88_.../restartout_cmf.nc ==
+        == Verifying CaMa-Flood restart continuity ==
+          staged restart rivsto   =     2001.4 km3
+          first output day rivsto =     2003.7 km3
+          ratio = 1.001
+          OK: CaMa river storage was carried from the previous segment
+
+`validation/check_cmf_restart_continuity.py --gauge-series` on the chained
+1989: **PASS, 0 of 19 gauges below threshold, exit 0** -- against **FAIL, 38 of
+38**, on the archive. The Congo starts 1989 at 66,724 m3/s against a 62,409
+median (ratio 1.07); in the archive it started at 7 m3/s.
+
+**The recovered water matches the prediction to 0.2%.** 1989 annual outflow to
+ocean plus inland terminations, same year, same gauge cells:
+
+        fixed   (restart chained)   ocean 36,373  inland 638  total 37,011 km3
+        archive (cold-started)      ocean 34,643  inland 471  total 35,114 km3
+        recovered                                                  +1,897 km3/yr
+
+against the independently measured v4 deficit of **+1,894 km3/yr**.
+
+**And it independently confirms the remap loss.** With storage now continuous
+the 1989 budget can be closed from this run alone: S_start 2,357.5 km3,
+S_end 2,557.6, dS +200.1, so CaMa accounted for 37,211 km3 against ecLand's own
+40,646 km3 of runoff (`-(Qs+Qsb)`, `check_budgets.py` on the same run) -- a
+shortfall of **3,435 km3 (8.45%)**, against the **3,390 km3 (8.86%)** computed
+by hand from `inpmat.nc`. Two independent routes to the same ~3,400 km3/yr.
+That is now the *only* large unexplained term, and it is exactly what
+`cama_flood/validate_remapping.py` was specified to catch. Caveat: `totout`
+excludes `pthout`, so any bifurcation flow reaching the ocean is uncounted and
+3,435 km3 is an upper bound on the remap loss, not a closure.
+
+**Caveat on the comparison, stated because it is a real confound.** The test
+run used the current default ecLand template, which has
+`TMNW_NDG_TIMESCL = 1.0E30` (FLake nudge OFF), while v4's 1989 was produced
+with the nudge ON. So this is not a byte-level reproduction of v4's 1989, and
+its budgets differ from the archive's: water residual **0.491%** against v4's
+1.977-2.191% band, energy residual **1.024%** against the archive's 0.53-0.96%
+band -- i.e. `check_budgets.py` **FAILS the energy tolerance** on this run.
+Both differences are attributable to the nudge, not to the CaMa restart: the
+nudge is documented at 0.005% in runoff but up to +24.7 K in lake temperature,
+and the ~2% water residual is itself lake evaporation. 0.005% of 40,646 km3 is
+~2 km3, three orders of magnitude below the +1,897 km3 signal, so the water
+comparison is unaffected. **New data point worth recording: the nudge-off
+configuration puts the energy residual above the 1% tolerance, and it
+IMPROVES the water residual from ~2% to 0.5%.** Neither was previously
+measured. The energy budget was already marked provisional-until-decomposed.
+
+Other verification: `bash -n`, `compileall`, `--help`, the namelist `sed` tested
 against the real `input_cmf.nam` (patches `LRESTART`, leaves `LRESTCDF`
 untouched, `LDAMOUT` detection correct both ways), restart files confirmed to
 contain every variable `READ_REST_CDF` requires (`rivsto`, `fldsto`,
 `rivout_pre`, `fldout_pre`, `rivdph_pre`, `fldsto_pre`, `pthflw_pre`, plus
-`damsto` in the dams archive). **The fix has NOT been exercised in a real
-coupled run, and no re-run has been launched.** Status: **NOT VERIFIED.**
+`damsto` in the dams archive). Status: **DONE** -- the fix is exercised and
+verified in a real coupled run; see the staged check above.
+
+A second instance of the same bug was found while setting that check up:
+`run/run_ecland_cmf.slurm` sources its config but only exports named
+variables, and `CMF_RESTART_FROM` was not among them, so the fix would have
+been silently inert and the staged check would have "passed" by cold-starting
+again. Fixed in 6e9c905. The wrapper's own comments already warned about
+exactly this for `ECLAND_EXE` and `NAMELIST_CMF_TEMPLATE`.
 
 ### Required next step -- needs a decision
 
-Both campaigns need re-running with the restart chained (~28 h each, as
-before). That is the user's call; nothing has been submitted. A cheaper
-staged check first: re-run two consecutive years of v4, confirm
-`VERIFY_CMF_RESTART` passes and `check_cmf_restart_continuity.py` goes to
-PASS, before committing 74 h of compute.
+Both campaigns need re-running with the restart chained (~28 h each; the
+staged segments took 57 min each at 16 ranks). **Nothing has been submitted.**
+Open question to settle first, because it changes what the re-run produces:
+whether to keep `TMNW_NDG_TIMESCL = 1.0E30` (the current template, which
+improves the water residual to 0.5% but pushes energy to 1.024%) or match the
+archive's nudge-on setting for continuity. A re-run is the moment to decide,
+not something to inherit by default.
 
 Note `run/configs/campaign/Y*.env` as committed carry no `CMF_RESTART_FROM`;
 they are rewritten by `submit_campaign.py` at submission, so they will pick it

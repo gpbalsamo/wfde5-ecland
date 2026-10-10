@@ -29,8 +29,11 @@ workflow step works because the code exists — see `CLAUDE.md`.
   they can select different cells, and that shows up as a peak-attenuation
   signal that is really a cell mismatch.
 - `check_cmf_restart_continuity.py` — detects CaMa-Flood's annual cold-start
-  discontinuity. **VERIFIED** 2026-10-10: FAIL, 38/38 gauge-years, exit 1
-  against the real v4 and dams archives. Rigorous mode compares a staged
+  discontinuity. **VERIFIED both ways** 2026-10-10: FAIL, 38/38 gauge-years,
+  exit 1 against the real v4 and dams archives; PASS, 0/19, exit 0 against a
+  re-run with the restart chained (jobs 37007228/37007229). Its rigorous mode
+  is also what `run_ecland.sh` runs inline after every coupled segment, where
+  it reported `ratio = 1.001`. Rigorous mode compares a staged
   restart's global `rivsto` against the first output day; the cheap mode tests
   1 January discharge against the gauge's own annual median. Read its
   docstring on why "days to recover" is *not* the criterion — that column is
